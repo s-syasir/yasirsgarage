@@ -5,32 +5,41 @@ on:
     branches: ["main"]
   pull_request:
     branches: ["main"]
+  schedule:
+    # weekly, so new CVEs in unchanged dependencies still turn CI red before a redeploy
+    - cron: "0 14 * * 1"
+  workflow_dispatch:
 
+permissions:
+  contents: read
+
+# Actions are pinned to commit SHAs so a moved tag can't swap in different code.
 jobs:
   scan-secrets:
     name: Secret scan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # full history so gitleaks can scan all commits
+          persist-credentials: false
 
-      - uses: gitleaks/gitleaks-action@v2
+      - uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e # v3.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  ci:
-    name: Typecheck, lint, audit, build
+  portfolio:
+    name: Portfolio (audit, typecheck, lint, build)
     runs-on: ubuntu-latest
-    needs: scan-secrets
     defaults:
       run:
         working-directory: portfolio
-
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
           cache: npm
@@ -40,18 +49,149 @@ jobs:
         run: npm ci
 
       - name: Dependency vulnerability audit
-        # fails on high or critical severity CVEs
-        run: npm audit --audit-level=high
+        # any severity fails
+        run: npm audit
+
+      - name: Verify registry signatures
+        run: npm audit signatures
 
       - name: Typecheck
         run: npx tsc --noEmit
 
       - name: Lint
-        run: npm run lint
+        run: npm run lint -- --max-warnings=0
 
       - name: Build
         run: npm run build
         env:
-          # Build needs this set to something or the server action will
-          # return "not configured" — use a dummy value in CI
+          # the server action returns "not configured" without it
           WHEREISYASIR_PASSWORD: ci-placeholder
+
+  locationservice:
+    name: Locationservice (audit, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: locationservice
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: locationservice/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dependency vulnerability audit
+        run: npm audit
+
+      - name: Verify registry signatures
+        run: npm audit signatures
+
+      - name: Build
+        # prod runs the compiled dist/, so the real build has to pass
+        run: npx tsc --noEmitOnError
+
+  docker:
+    name: Docker image (lint, build, scan, smoke test)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Lint Dockerfile
+        uses: hadolint/hadolint-action@06be81baf89a55ffd0e24b8f04a4185738dd3387 # v3.5.0
+        with:
+          dockerfile: portfolio/Dockerfile
+          failure-threshold: warning
+          # unpinned apk packages are fine, the base image tag is what gets bumped
+          ignore: DL3018
+
+      - name: Build image
+        run: docker build --pull -f portfolio/Dockerfile -t yasirsgarage:ci .
+
+      - name: Scan image for vulnerabilities
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: yasirsgarage:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Smoke test with production hardening
+        run: |
+          mkdir -p ci-data/logs ci-resume
+          cp location.example.json ci-data/location.json
+          cp resume.example.json ci-resume/resume.json
+          chmod 777 ci-data/logs
+          docker run -d --name portfolio-ci -p 127.0.0.1:8080:8080 --read-only \
+            --cap-drop=ALL --cap-add=NET_BIND_SERVICE --tmpfs /tmp --tmpfs /run \
+            -v "$PWD/ci-data:/app/data:ro" -v "$PWD/ci-data/logs:/app/data/logs:rw" \
+            -v "$PWD/ci-resume:/app/resume:ro" \
+            -e WHEREISYASIR_PASSWORD=ci-placeholder -e HOSTNAME=0.0.0.0 yasirsgarage:ci
+          for i in $(seq 1 30); do curl -sf -o /dev/null http://127.0.0.1:8080/ && break; sleep 1; done
+
+          fail=0
+          expect() {
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X "$1" "http://127.0.0.1:8080$2")
+            if [ "$code" != "$3" ]; then echo "FAIL $1 $2: got $code, want $3"; fail=1; else echo "ok   $1 $2 $code"; fi
+          }
+          for p in / /about /contact /now /setup /posts /projects /resume /resume/print /resume/docx /whereisyasir; do
+            expect GET "$p" 200
+          done
+          for f in portfolio/content/posts/*.mdx; do expect GET "/posts/$(basename "$f" .mdx)" 200; done
+          for f in portfolio/content/projects/*.mdx; do expect GET "/projects/$(basename "$f" .mdx)" 200; done
+          expect GET /posts/no-such-post 404
+          expect GET /projects/no-such-project 404
+          expect GET /no-such-page 404
+          # image optimizer is disabled and carries RCE advisories, it must stay unreachable
+          expect GET "/_next/image?url=%2Fhomeserver.jpg&w=640&q=75" 404
+          expect POST /api/log-headless-access 200
+
+          # the rootfs is read-only in prod, so any runtime write shows up here
+          if docker logs portfolio-ci 2>&1 | grep -iE 'EROFS|ENOENT|unhandledRejection|Failed to update prerender cache'; then
+            echo "FAIL runtime write or unhandled error in container logs"; fail=1
+          fi
+          # access-log line format is parsed by Alloy/Grafana in prod
+          if grep -hvE '^\S+ [A-Z0-9_-]+ ip=\S+( \S+)*$' ci-data/logs/*.log; then
+            echo "FAIL access log line format changed"; fail=1
+          fi
+          exit $fail
+
+  codeql:
+    name: CodeQL
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: github/codeql-action/init@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+
+      - uses: github/codeql-action/analyze@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+
+  dependency-review:
+    name: Dependency review
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: low

@@ -1,7 +1,6 @@
 import Link from "next/link";
 import Nav from "@/components/Nav";
 import Footer from "@/components/Footer";
-import { PrintButton } from "./PrintButton";
 import { HeadlessBrowserDetect } from "./HeadlessBrowserDetect";
 import { getResume } from "@/lib/resume";
 

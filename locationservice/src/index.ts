@@ -66,7 +66,7 @@ async function reverseGeocode(lat: number, lon: number): Promise<string> {
 }
 
 app.post("/location", async (req, res) => {
-  const { lat, lon } = req.body;
+  const { lat, lon } = req.body ?? {};
   console.log("[location] received body:", JSON.stringify(req.body));
 
   if (typeof lat !== "number" || typeof lon !== "number") {
