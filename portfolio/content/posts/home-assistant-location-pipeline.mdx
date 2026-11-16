@@ -1,0 +1,86 @@
+---
+title: How the live location on this site actually works
+description: From a Home Assistant geocoded sensor to a password-protected Leaflet map, without a cloud service in sight.
+date: "2026-03-01"
+tags: [Home Assistant, Node.js, self-hosting, privacy]
+---
+
+The `/whereisyasir` page on this site shows my approximate current city on a Leaflet map. It updates
+automatically when I move cities. There's no third-party location service involved. The whole
+pipeline runs on my own hardware.
+
+Here's how it works end to end.
+
+## The source: Home Assistant companion app
+
+I run Home Assistant on my home server. The Android companion app on my Pixel 8 exposes a sensor
+called `sensor.pixel_8_geocoded_location`, a human-readable string of my current location that the
+phone's OS provides. When this sensor's state changes, an HA automation fires.
+
+The automation is a REST command, essentially a POST to my location service with the current
+coordinates from the phone's GPS sensor. The URL points to the local server IP, not the Tailscale
+address, because Home Assistant lives on an isolated VLAN that can reach the server directly but not
+the Tailscale mesh.
+
+## Privacy: how the location data is protected
+
+HA sends the raw GPS coordinates as-is. The privacy is handled on the portfolio side.
+
+The full lat/lon is only ever visible after entering the correct password. Before that, the page
+calls Nominatim with `zoom=10`, which returns a coarser region name rather than a precise city.
+That's the "Yasir is somewhere near X" hint on the password gate: accurate enough to be interesting,
+not precise enough to be a problem.
+
+The coordinates are never exposed in page source or API responses without authentication.
+
+## The location service
+
+A small Node.js/Express service listens on `127.0.0.1:3001`. It receives `{lat, lon}`, reverse
+geocodes via the Nominatim API to get a city name, and writes two files:
+
+```
+location.json         ← current location (overwritten each update)
+location-history.json ← append-only log, only grows when the city changes
+```
+
+The history file only gets a new entry when the city actually changes, not on every coordinate
+update. This gives a useful "cities visited" timeline without noise from minor GPS drift.
+
+The service uses Nominatim (OpenStreetMap's geocoder) rather than the Google Maps API. No API key,
+no rate limits for personal use, no data leaving to a third party.
+
+```
+POST /location {lat, lon}
+    │
+    ▼
+Nominatim reverse geocode → city name
+    │
+    ├── city changed? → append to location-history.json
+    │
+    └── write location.json
+```
+
+## The portfolio side
+
+The `/whereisyasir` page is password-gated. The password is checked against an env var server-side,
+no database, no sessions, just a simple comparison on each request.
+
+NOTE: I *think* this is still safe to run because this website is ran via a cloudflare tunnel, so if a bad
+actor tries to spin up 300k clients trying to spam the password, hopefully cloudflare takes care of it.
+This feature felt too cool to not implement. Worst case, some bad actor figures out I'm at work from 9-5
+and at home from 5-9.
+
+Once through, the page reads `location.json` for the current city and `location-history.json` for
+the timeline, renders them on a Leaflet map, and shows a "navigate in Google Maps" link.
+
+The coordinates shown on the map are the raw ones from HA, so the pin is reasonably accurate. The
+privacy comes from the password gate, not from fuzzing the coordinates themselves.
+
+## What I'd do differently
+
+The current setup re-reads the JSON files on every page load. That's fine for a personal site with
+minimal traffic. If I wanted live updates without refreshing, I'd add a small WebSocket or SSE
+endpoint to the location service and push city changes to the browser.
+
+For now though, "reload the page" is a perfectly acceptable UX for checking what city your friend is
+in.

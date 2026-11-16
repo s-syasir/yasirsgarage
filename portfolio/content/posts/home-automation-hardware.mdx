@@ -1,0 +1,112 @@
+---
+title: The home automation hardware I actually use
+description: Air quality sensors, a robot vacuum with local control, Zigbee devices, and the philosophy behind keeping it all local.
+date: "2026-02-05"
+tags: [Home Assistant, home automation, Zigbee, hardware]
+---
+
+Home automation gear has a recurring problem: it works great for two years and then the company gets
+acquired, sunsets the app, or starts requiring a subscription. Everything I've bought is local-first:
+it works when the internet is down, it doesn't stop working if the cloud service shuts down, and
+nothing is sending usage data to a third party.
+
+Here's what I'm actually running.
+
+## Air quality monitoring
+
+**AirGradient ONE** indoor sensors: CO2, PM2.5, PM10, temperature, humidity, and VOCs. They run
+their own firmware and communicate locally via ESPHome or the native Home Assistant integration. No
+cloud account required, no data leaving the house.
+
+The AirGradient **Open Air** goes outside, same sensors in a weatherproof enclosure. This feeds the
+outdoor weather intent for the voice assistant: "what's it like outside" reads the actual sensor
+mounted near the front door rather than a weather API's estimate for my ZIP code.
+
+CO2 is the one I watch most. Above ~1000 ppm in a room, cognitive performance starts to degrade
+noticeably. The sensor triggers a notification when a room crosses 1200 ppm, basically a
+"crack a window" reminder.
+
+## Zigbee sensors and switches
+
+The protocol I landed on after evaluating options. Zigbee advantages over WiFi for sensors:
+
+- Battery life measured in years, not months
+- Forms a mesh: every mains-powered Zigbee device acts as a router, extending range
+- Local: no cloud dependency, everything goes through ZHA (Zigbee Home Automation) in Home
+Assistant directly
+
+**Light switches:** Aqara switches. They work reliably, pair easily, and the buttons can be used for
+scenes and automations independent of the connected light.
+
+**Door/window sensors:** Cheap Aqara sensors on doors I care about, plus the entry door. The
+deadbolt detection is more interesting, detecting whether a deadbolt is locked vs. unlocked without
+replacing the deadbolt itself. A Zigbee tilt sensor mounted on the rotating knob (the interior piece
+that turns the deadbolt) gives a 90°/180° reading that maps to locked/unlocked.
+
+**Sengled bulbs:** Pairing tip that took me too long to find. To put a Sengled LED into pairing
+mode, switch it on and off rapidly 10+ times. It blinks five times to confirm it's in pairing mode.
+
+## The USB Zigbee stick
+
+A USB Zigbee coordinator plugged into the Home Assistant server (running as a Proxmox VM). The
+specific dongle matters. Not all are created equal for range and reliability. Home Assistant's
+community has tested and published a recommended list. I use a coordinator from that list, not
+whatever's cheapest on Amazon.
+
+Here is the [list](https://www.home-assistant.io/integrations/zha/#recommended-zigbee-radio-adapters-and-modules)
+
+## Air purifier
+
+The insight that unlocked this: most good air purifiers are "dumb", a mechanical device with a fan
+and filter. They remember their last state (on/off, speed) when power is cut and restored. That
+means: put one on a smart plug, and you control it completely via the plug. No cloud integration
+needed, no "smart purifier" premium.
+
+The air quality sensors feed this. The PM2.5 or PM10 goes above threshold, the automation turns the plug
+on (and the purifier, which was left in the "on" state at speed 2). Below threshold, it turns back
+off.
+
+## Some theoretical ideas (that *should* work)
+
+### Robot vacuum
+
+**Dreame L10s Pro Ultra** running Valetudo, a local-only replacement for the manufacturer's cloud
+firmware. The stock Dreame app sends telemetry, maps, and usage data to their servers. Valetudo
+removes all of that and exposes a local API that Home Assistant can talk to directly.
+
+The general principle: any robot vacuum that works well will also work with Valetudo. The approach
+of buying based on vacuum quality first and then checking Valetudo compatibility second is the right
+order of operations.
+
+Valetudo exposes room-by-room cleaning control, which is the killer feature. Home Assistant knows
+which rooms are which. I have an automation that triggers "clean the kitchen" after cooking sessions
+instead of cleaning the whole map every time.
+
+The harder part is doing the hardware hacking 
+
+
+## What I'm not automating
+
+The thermostat. Electric baseboard heaters with Zigbee or Z-wave thermostats exist, but the cost per
+room for proper coverage is significant. I'll get there eventually, but it's not in the current
+setup.
+
+Voice control for complex things. The local Whisper model transcribes well enough for entities and
+simple commands, but anything requiring context or multi-step reasoning doesn't work with
+pattern-matched intents. I'd rather it work reliably for what it supports than be flaky trying to do
+too much.
+
+## The philosophy
+
+Every device I've added has a clear answer to: "what happens if the company that made this goes
+under tomorrow?"
+
+For the AirGradient sensors: I keep the data, I can flash alternative firmware if needed.
+For the Zigbee sensors: they communicate with a local coordinator, there's no server involved.
+For the smart plugs: local-only Zigbee or Z-Wave.
+
+This sounds paranoid until the third time a consumer IoT product announces an end-of-service date
+and you realize that everything you bought doesn't work anymore.
+
+If you think I am kidding, I'd watch this [Louis Rossmann](https://www.youtube.com/watch?v=LsI6P2lxcHM) video talking
+about Google killing their Nest devices and you can see where the paranoia comes from.

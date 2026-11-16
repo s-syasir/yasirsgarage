@@ -1,0 +1,129 @@
+---
+title: Why I self-host (and what I've actually learned from it)
+description: The real reasons to run your own infrastructure at home, and the honest cost of doing it.
+date: "2026-03-15"
+tags: [self-hosting, home lab, philosophy]
+---
+
+I run a LOT of services on hardware in my house. 
+People ask why. The tl;dr is simple: self-hosted alternatives to mainstream services are cheaper, 
+privacy-respecting and fully customizable.
+
+## Here are some of the services I host
+
+<div className="service-table">
+
+| Service | Software | Replaces |
+|---|---|---|
+| Notes | Joplin | Notion |
+| Password manager | Vaultwarden | 1Password |
+| Photo library | Immich | Google Photos / iCloud |
+| Media server | Jellyfin | Plex Pass / Netflix / Spotify |
+| Finance tracker | Actual Budget | YNAB |
+| File sync & Calendar | Nextcloud | Google Drive / iCloud |
+| Search engine | SearXNG | Google Search |
+| Chat & bridging | Synapse + Mautrix | Discord / WhatsApp |
+| NVR & cameras | Frigate | Ring / Nest |
+| File converter | ConvertX | CloudConvert |
+| Local AI | Ollama | ChatGPT |
+
+</div>
+
+## Going into more detail
+
+**Privacy:** 
+
+My notes, photos, and finances are on drives I physically own, in a house I live in. No company has
+them, indexes them, trains models on them, or loses them in a breach.
+
+**No subscriptions:**
+
+Look at some of the most popular subscriptions. Netflix, Notion, 1Password, iCloud, Google Photos.
+The subscription economy for software has gotten VERY expensive.
+
+My monthly costs are a Backblaze B2 bill that rounds to ~$5, plus electricity. PSE charges
+~$0.20/kWh in Seattle, so running my servers 24/7 would add about $24 a month.
+However, I don't actually leave them on all the time. With smart cron jobs (shutting off servers
+at night because I'm asleep), I can reduce that cost to closer to $15 a month.
+
+Either way, that's about the same as Netflix's top tier subscription alone, let alone the
+combination of everything above.
+
+**It works the way I want:** 
+
+Self-hosted software lets me configure it properly instead of working around the choices a product
+team made for a different user.
+
+## Customizability and  reason I actually keep doing it
+
+I learn more from running this infrastructure than from almost anything else I do.
+
+Debugging why a container can't reach the NAS after a network reconfiguration teaches me more about
+networking than any course. Writing the backup scripts taught me more about filesystem semantics and
+I/O scheduling than I learned in school. Setting up NUT and testing the shutdown sequence was the
+first time I had a real, working answer to "what happens to your data when the power goes out?"
+
+Self-hosting gives you a production system you're allowed to break.
+
+## The honest cost
+
+**Hardware Costs:** 
+
+I got lucky that I got into self-hosting when memory prices were absurdly cheap (~2023) and so I had
+purchased all my hardware then. If you wanted to get in now, you would have to cut corners or pay an absurd amount.
+
+As general advice, I would recommend buying used from FB marketplace. You don't need PC-grade hardware to 
+host Joplin notes. However, if you ever plan on doing any GPU transcoding, you will need a GPU or an iGPU.
+
+**Time:** 
+
+There are two things that take up time. Setting services up and then those services inevitably breaking.
+
+Containers need updates. Docker images change behavior between versions. A dependency
+updates and suddenly a service won't start. Most weeks nothing breaks. Some weeks I spend three
+hours on Saturday figuring out why Nextcloud can't see its database after a Postgres upgrade.
+
+However, the more things break, the faster you get at fixing them. You learn niche bugs that
+can break docker services, etc. You build up your notes on what breaks and what doesn't and how to fix it.
+Sometimes you'll get a repeat error that your notes will have a solution for. Sometimes it might be 
+similar to the error in the notes. Time is the greatest cost with self-hosting, but to me it is time well-spent.
+
+
+**Responsibility:** 
+
+If Notion loses your data, Notion is liable and probably has backups. If my Nextcloud instance loses
+data, that's on me. The 3-2-1 backup system I run exists because I've lost data I cared about and it
+was entirely my own fault.
+
+**Complexity tax:** 
+
+Every service I add is another thing that can fail, another set of logs to check, another auth
+system to configure. There's a point where the complexity of managing everything starts to cost more
+time than the subscriptions would have cost money. I try to stay below that point by being selective
+about what I actually run.
+
+## What I don't self-host
+
+Email. Actually sending and receiving email from your own server in 2026 means fighting
+deliverability constantly. I use Protonmail for the actual email account and run a Protonmail Bridge
+so local clients can talk to it. It's a compromise that works.
+
+Anything where availability matters to someone else. If my personal Jellyfin goes down, I'm the only
+one who can't watch a movie. If I ran something other people depended on, I'd need reliability
+guarantees that I can't provide.
+
+## Who it's for
+
+Not everyone. If you have no interest in how computers actually work, self-hosting is a bad deal.
+You're signing up for operational overhead to get privacy and control you may not care that much
+about.
+
+But if you're the kind of person who wants to understand what's happening under the hood, running a
+home lab is one of the best ways to build that understanding. You get a real system, real failure
+modes, and real consequences for getting things wrong. Except no one depends on it except yourself.
+
+
+...Or more likely, your parents yell at you for the wifi being down because your pihole instance
+stopped working for no apparent reason. :)
+
+That's the part no tutorial gives you.

@@ -1,0 +1,63 @@
+---
+title: My resume is a JSON file that generates a website, a PDF, and a Word doc
+description: One resume.json as the single source of truth, rendered three different ways so I never have to manually sync a PDF and a webpage again.
+date: "2026-07-06"
+tags: [Next.js, TypeScript, resume, automation]
+---
+
+Often times when I'm applying to a job, it's just a LinkedIn job posting via my phone. In fact, that
+is exactly how I applied for my current job. Having my resume on my phone allows me to apply to jobs
+on-the-go and just get my job application numbers up.
+
+However, I edit my resume on my laptop. Maybe it's a generational thing, but there are certain
+things that feel like a "laptop job" and not a phone job. Resume editing is one of them. The problem 
+is that any time I edit my resume, I have to sync it over to my phone. Now if I just had a google
+drive account, this would not be a problem. However, I like to self-host everything and torture
+myself. So here we are.
+
+I got tired of maintaining my resume in four places: a Word doc for recruiters who want a `.docx`,
+saving that word doc to pdf for everyone else, my phone for applying to jobs, and a webpage 
+here that inevitably drifted out of sync with everything else. Every time I
+updated a bullet point I had to remember to update it everywhere else.
+
+So I made the data the single source of truth and generated everything else from it.
+
+## The data
+
+`resume.json` is the only file I actually edit. Every job, bullet point, skill, and link lives there.
+Nothing else in the resume system has content hardcoded into it, it's all just rendering.
+
+## The web page
+
+`/resume` renders `resume.json` directly as a page styled to match the rest of the portfolio. Email
+and phone number are masked on the web view (`y*****9@outlook.com`, `425-***-****`) since this page
+is public and I'd rather not hand scrapers a clean copy of my contact info. I think only a human
+would think to then generate the resume as a docx/pdf and see the actual contact info in there.
+
+## The PDF
+
+`/resume/pdf` spins up a headless Chrome instance via Puppeteer, renders the same resume data as
+plain HTML (Times New Roman, tight margins), and streams back a PDF. Launching a full browser per
+request isn't free, so the first request after a restart pays that cost and the result gets cached
+in memory from then on. Since `resume.json` only changes via a redeploy anyway, and a redeploy
+restarts the process, the cache invalidates itself exactly when it needs to, no extra logic required.
+
+## The Word doc
+
+`/resume/docx` uses the `docx` npm package to build a `.docx` directly, no browser involved. This one
+was more annoying to get right than the PDF: the contact row uses right-aligned tab stops to line up
+email/LinkedIn/GitHub, and `docx`'s built-in `TabStopPosition.MAX` doesn't actually match the page's
+usable width once you've accounted for margins. Had to compute the right tab stop manually from
+page width minus margins to get it to land in the right place. Also wired up real `ExternalHyperlink`
+runs for email/LinkedIn/GitHub instead of plain text, so links are actually clickable in Word.
+
+## The print preview
+
+`/resume/print` is a plain HTML route handler, no client JS, meant for using the browser's own print
+dialog when you just want a clean printout that resembles a pdf without downloading anything.
+
+## Why bother
+
+I am incredibly stubborn and when an idea enters my head, it rarely leaves. If this is something
+that works, I guess you'll see it on the /resume page. If not, it was really fun to work on a dumb problem
+that no one else thought was a problem.

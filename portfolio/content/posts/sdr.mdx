@@ -1,0 +1,232 @@
+---
+title: "Software-defined radio on a $30 dongle: from planes to weather sensors"
+description: What a Nooelec RTL-SDR dongle can actually pick up on a home lab box, from tracking airliners over Puget Sound to decoding my neighbor's weather station.
+date: "2026-07-04"
+tags: [SDR, home lab, Linux, hardware]
+---
+
+I picked up a **Nooelec NESDR SMArt v5** (an RTL2832U chip with a Rafael Micro R820T tuner and a TCXO
+for frequency stability, USB ID `0bda:2838`) mostly out of curiosity about what's actually flying
+through the air around my house. It ended up running two completely different projects on the same
+box (which also runs Pi-hole v6, unbound, ZeroTier, and Prometheus/node_exporter, because nothing in
+my home lab gets to have just one job).
+
+The one rule that governs everything below: **a single RTL-SDR dongle can only tune one ~1-2.4 MHz
+window at a time.** ADS-B at 1090 MHz and FM radio at 98 MHz are mutually exclusive on the same
+dongle. Want to run two projects at once, you need two dongles.
+
+## Project 1: ADS-B flight tracking (since removed)
+
+The first thing I did with it was track aircraft. Every plane with a Mode S transponder broadcasts
+its position, altitude, and speed on 1090 MHz, unencrypted, and a $30 dongle can decode it.
+
+```bash
+lsusb   # confirms 0bda:2838 RTL2838 DVB-T — that's the SDR
+echo 'blacklist dvb_usb_rtl28xxu' | sudo tee /etc/modprobe.d/blacklist-rtl.conf
+sudo rmmod dvb_usb_rtl28xxu 2>/dev/null   # reboot to make it stick
+
+sudo apt install rtl-sdr
+rtl_test   # should find the R820T tuner; a startup "lost bytes" warning is harmless
+```
+
+The kernel ships a generic DVB-T driver that will grab the dongle before you get a chance to use it
+as an SDR, so it has to be blacklisted first.
+
+For the decoder, FlightAware's own install script was already broken (renamed to
+`install-dump1090-fa.sh`, and the download it depended on died partway through), so I used
+**readsb** instead, a from-source build with no FlightAware dependency, which also bundles
+**tar1090** for a proper live map:
+
+```bash
+sudo bash -c "$(wget -O - https://github.com/wiedehopf/adsb-scripts/raw/master/readsb-install.sh)"
+sudo reboot
+sudo readsb-set-location 47.6062,-122.3321  # Seattle, WA
+sudo readsb-gain auto
+```
+
+Opened the firewall for the map port and that was it:
+
+```bash
+sudo ufw allow proto tcp from <lan-subnet> to any port 8504 comment 'tar1090'
+sudo ufw allow proto tcp from <vpn-subnet> to any port 8504 comment 'tar1090'
+```
+
+And there it was: `http://<box-ip>:8504/tar1090/`, a live radar-style map of everything
+overhead. Caught **AAL2522** (an Airbus A321) and **ASA304** (a 737 MAX 9) crossing over Puget Sound
+within the first hour. It's a genuinely great "look what's flying over your house right now" project
+and I'd recommend it as a first SDR project to anyone.
+
+I eventually tore it down to free the dongle for the next project:
+
+```bash
+sudo systemctl disable --now readsb tar1090
+sudo /usr/local/share/tar1090/uninstall.sh
+sudo rm -f /lib/systemd/system/readsb.service /usr/bin/readsb /usr/bin/viewadsb
+sudo rm -rf /etc/systemd/system/readsb.service.d /etc/default/readsb /usr/local/share/adsb-wiki
+sudo userdel readsb 2>/dev/null
+sudo ufw delete allow proto tcp from <lan-subnet> to any port 8504
+sudo ufw delete allow proto tcp from <vpn-subnet> to any port 8504
+```
+
+Kept the blacklist and udev rules around though, since every RTL-SDR project needs them regardless
+of what's running on top.
+
+## Project 2 (current): rtl_433 — decoding the ISM bands
+
+With the dongle free, I moved on to the 433/315/915 MHz ISM bands, which is where a huge pile of
+consumer RF devices live: weather stations, wireless thermometers, TPMS tire sensors, doorbells,
+utility meters. `rtl_433` decodes all of it.
+
+I started with the packaged version just to confirm the dongle worked at all:
+
+```bash
+sudo apt install rtl-433
+sudo rtl_433
+```
+
+It decoded a **LaCrosse-TX141Bv3** (an outdoor temperature sensor, id 206, channel 1) almost
+immediately. But the packaged build was from **2022**, three years behind and missing the modern
+built-in web UI, so I removed it and built current `rtl_433` from source instead:
+
+```bash
+sudo apt remove -y rtl-433   # avoid having two binaries fighting over the dongle
+sudo apt install -y build-essential cmake pkg-config libusb-1.0-0-dev librtlsdr-dev
+git clone https://github.com/merbanan/rtl_433.git
+cd rtl_433 && mkdir build && cd build
+cmake .. && make -j4 && sudo make install   # installs to /usr/local/bin/rtl_433
+hash -r   # bash cached the old /usr/bin path, this clears it
+rtl_433 -V
+```
+
+Then wired it up as a proper systemd service:
+
+```ini
+# /etc/systemd/system/rtl433.service
+[Unit]
+Description=rtl_433 ISM receiver + web UI
+After=network.target
+
+[Service]
+ExecStart=/usr/local/bin/rtl_433 -F http://0.0.0.0:8192 -F json:/var/log/rtl433.jsonl -M time:iso -f 433.92M -f 315M -f 915M -H 60
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo touch /var/log/rtl433.jsonl
+sudo systemctl daemon-reload
+sudo systemctl enable --now rtl433
+
+sudo ufw allow proto tcp from <lan-subnet> to any port 8192 comment 'rtl433'
+sudo ufw allow proto tcp from <vpn-subnet> to any port 8192 comment 'rtl433'
+```
+
+Now `http://<box-ip>:8192` runs the modern rtl_433 "rxui": MONITOR, STATS, PROTOCOLS,
+SETTINGS, LOG, SYS tabs, plus a BITBENCH and an I/Q spectrogram for eyeballing raw signals. I keep
+it on its own port deliberately separate from Grafana, Grafana stays reserved for actual infra
+metrics (CPU, temps, Pi-hole health), this is just for RF junk data.
+
+### Querying the log with jq
+
+Everything decoded gets appended to `/var/log/rtl433.jsonl` as one JSON object per line, which
+means `jq` can answer basically any question I have about it:
+
+```bash
+sudo apt install -y jq
+
+# device inventory: unique devices + hit counts
+jq -rc 'select(.model) | "\(.model) id=\(.id)"' ~/rtl433.jsonl | sort | uniq -c | sort -rn
+
+# temperature trend in °F, deduped
+jq -rc 'select(.model=="LaCrosse-TX141Bv3") | "\(.time)  \((.temperature_C*9/5+32)*10|round/10)°F"' ~/rtl433.jsonl | uniq
+
+# min / max / latest temperature
+jq -s 'map(select(.temperature_C).temperature_C) | {min:min, max:max, latest:.[-1]}' ~/rtl433.jsonl
+```
+
+`center_frequency` and `hop_times` lines in the log are just band-hop status, not real device data,
+`select(.model)` filters those out. Doubled log lines for the same reading are normal too, sensors
+transmit each value as a burst and rtl_433 reports every decode of it.
+
+So far 315 and 915 MHz have been quiet. If that holds after a full day I'll drop the hopping
+entirely and pin to 433.92 MHz for better dwell time on the one band that's actually busy. Also on
+the list: disable decoders in the PROTOCOLS tab for devices I'll never see, to cut down false
+decodes and CPU use, and eventually add logrotate for the JSONL file since it's unbounded, just
+slow-growing. Letting it run overnight is worth it too, TPMS sensors from passing cars and other
+intermittent devices start showing up that a quick test never catches.
+
+So far, I've caught the temperature sensors for a bunch of my neighbor's cars. No insane data, but 
+it is crazy what an SDR can sniff out if point along the right bands.
+
+## Gotchas that'll bite you regardless of project
+
+- **One dongle, one task.** Running multiple RTL-SDRs concurrently means giving each a unique
+  serial (`rtl_eeprom -d 0 -s adsb`, `-s rtl433`, etc.) and binding services to that serial, since
+  they all share the same USB ID and get reshuffled across reboots otherwise. Use a powered USB hub,
+  they draw real power and run warm. And each band really does want its own antenna, an ADS-B
+  antenna is not a good 433 MHz antenna.
+- **Permissions.** Non-root access needs a udev rule plus `plugdev` group membership (and a
+  replug/relogin to take effect):
+  ```
+  SUBSYSTEM=="usb", ATTRS{idVendor}=="0bda", ATTRS{idProduct}=="2838", GROUP="plugdev", MODE="0666"
+  ```
+  in `/etc/udev/rules.d/rtl-sdr.rules`. In practice I mostly just ran things as root or via a
+  systemd service and didn't bother.
+- **`hash -r`** after replacing a binary bash has already run once, otherwise it keeps executing
+  the stale cached path even though `which` shows the new one.
+- **ufw blocks everything by default,** including loopback-adjacent traffic from your own LAN. Every
+  new web service on a new port needs an explicit `allow` rule or it silently drops, `curl localhost`
+  works fine while the browser gets nothing. This got me twice before I remembered.
+- **Pi-hole v6 runs its own embedded web server** inside `pihole-FTL` on ports 80/443, it doesn't use
+  lighttpd anymore. When the ADS-B install's lighttpd also wanted port 80, FTL kept IPv4:80 and
+  lighttpd got shoved onto IPv6:80, meaning the actual map ended up living on its own port (8504)
+  instead. DNS on port 53 was never affected by any of this.
+- Keep `/etc/modprobe.d/blacklist-rtl*.conf` and `/etc/udev/rules.d/rtl-sdr.rules` even when tearing
+  down a project, every RTL-SDR project needs them.
+
+## What's next (~24 MHz to ~1.7 GHz, and one dongle can only do one at a time)
+
+More ideas than I have dongles for:
+
+- **ACARS / VDL2** (~131/136 MHz) — the text/data messages planes exchange, via `acarsdec` or
+  `dumpvdl2` with the `acarshub` web UI.
+- **978 MHz UAT** — US general-aviation ADS-B, would show up right inside tar1090 alongside the
+  1090 MHz traffic if I bring the ADS-B project back on a second dongle.
+- **Airband voice** (118-137 MHz AM) — live Sea-Tac / Boeing Field / Renton tower and approach audio
+  in GQRX.
+- **Meteor LRPT weather satellite imagery** — NOAA's old APT satellites were fully decommissioned by
+  August 2025, so every old NOAA tutorial is dead now. The current target is Meteor M2-4 on 137 MHz,
+  decoded with SatDump off a cheap V-dipole, actual cloud photos from a satellite passing overhead.
+  GOES HRIT (geostationary, full-disk Earth) is the fancier version but needs a dish and an LNA.
+- **OpenWebRX+** — a browser-based SDR waterfall, tune to WFM and stream audio straight to a browser
+  tab, multi-user, works over LAN or the VPN. Installs from a PPA, runs on port 8073.
+- **NOAA Weather Radio voice** (162.4-162.55 MHz), continuous local forecasts, no decoding needed.
+- **Trunked/public-safety scanning** via SDRTrunk or trunk-recorder, though a lot of King County
+  public safety traffic has moved to encrypted P25 so there's less to actually hear than there used
+  to be.
+- **ISS packet/SSTV** on 145.825 MHz, and other FM ham satellites.
+- **L-band** (~1.5-1.6 GHz) — Inmarsat AERO aircraft satcom via JAERO, or Iridium via
+  iridium-toolkit, both need a patch antenna.
+- **AIS ship tracking** (161.975/162.025 MHz) via AIS-catcher, low priority since Redmond is inland
+  and east of the lake, reception toward Puget Sound would be marginal without a high antenna with
+  a clear westward view.
+
+And when none of that sounds interesting, GQRX or SDR++ for just tuning around the waterfall to see
+what's transmitting, or `rtl_power` to scan a wide band over time and find activity worth digging
+into.
+
+## Why do it?
+Honestly, I don't think I am going to catch out any flights doing something strange via this SDR. However,
+it's just incredibly fun to scratch that Electrical Engineering itch I've had since I graduated. It's a lot 
+of fun to just do a project for the sake of doing it. Great use of my 4th of July weekend.
+
+## References
+
+- rtl_433: [github.com/merbanan/rtl_433](https://github.com/merbanan/rtl_433) · docs at [triq.org](https://triq.org/)
+- readsb / ADS-B scripts: [github.com/wiedehopf/adsb-scripts](https://github.com/wiedehopf/adsb-scripts)
+- tar1090: [github.com/wiedehopf/tar1090](https://github.com/wiedehopf/tar1090)
+- OpenWebRX+: [luarvique.github.io/ppa](https://luarvique.github.io/ppa/) · docs at [fms.komkon.org/OWRX](https://fms.komkon.org/OWRX)
+- SatDump: [github.com/SatDump/SatDump](https://github.com/SatDump/SatDump)

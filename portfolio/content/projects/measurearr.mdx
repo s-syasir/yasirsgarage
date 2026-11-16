@@ -1,0 +1,92 @@
+---
+title: MeasureARr
+description: Android AR measuring app. No ARCore, no Google Play Services — just a depth model and a camera.
+date: "2025-08-01"
+tags: [React Native, Kotlin, ONNX, OpenCV, Android]
+github: https://github.com/s-syasir/MeasureARr
+---
+
+## What it is
+
+An Android app that measures real-world distances by tapping two points on the camera view. You tap
+point A, tap point B, and get a distance in mm or inches. No ARCore, no Google Play Services, no
+network calls after install.
+
+## Why I built it
+
+ARCore is the obvious approach for this — but it requires Google Play Services, which rules out
+GrapheneOS and de-Googled devices. I wanted something that worked on any Android phone and would
+respect privacy.
+
+## How it works
+
+```
+Camera frame (1920×1080)
+    │
+    ├─► PlaneDetector (ORB + RANSAC, every 3rd frame)
+    │   └─► tilt warning if phone held near-vertical
+    │
+    └─► Rolling 3-frame buffer cached at 518×518
+    
+At tap time:
+    ▼
+DepthEngine.infer() on all 3 buffered frames
+    Depth Anything V2 Metric Indoor (ONNX)
+    9×9 edge-aware neighbourhood median at each tap point
+    Median depth across 3 frames → metres
+        │
+        ▼
+MeasurementEngine.measureMetricDepth()
+    p = [z·(u−cx)/fx,  z·(v−cy)/fy,  z]
+    dist = ‖p₂ − p₁‖ × 1000 mm × depthScale
+```
+
+The depth model (Depth Anything V2 Metric Indoor) runs entirely on-device, bundled in the APK as an
+ONNX file. Input is 518×518 RGB, output is a float32 depth map in metres.
+
+## Key decisions
+
+**ONNX Runtime, not TFLite** — better support for the Depth Anything V2 export format.
+
+**arm64-v8a only** — avoids building the ONNX Runtime and OpenCV ABI matrix for a v1. A reasonable
+trade-off for initial release.
+
+**Model bundled in the APK** — no first-launch download, fully offline, no CDN required. The model
+is ~50 MB which is acceptable.
+
+**3-frame buffer + median** — reduces frame-to-frame depth variance without blocking the camera
+thread.
+
+**Edge-aware 9×9 median** — pixels where `|v − centre| > 25% of centre` sit on depth edges and would
+pull in background depth. They're excluded from the sample.
+
+**Modal for all UI** — VisionCamera renders in a hardware-accelerated surface that occludes all
+sibling React Native Views. The UI lives in a transparent Modal, which renders in a separate window
+layer above it.
+
+## Calibration
+
+Without calibration the model overestimates by ~2–3× at close range — a known limitation of
+monocular depth models trained on room-scale data. A single calibration session against a known-size
+object (credit card, A4 sheet, or custom mm) corrects this with a scale factor stored in
+AsyncStorage. Accuracy after calibration is typically ±10–20%.
+
+
+## What I learned and my recommendation
+I can't say this is better than what I used to use on IOS (and Google's measure app).
+However, it's not the worst idea in a pinch. If it was really that good, I'd throw it up on the play store lol.
+It was fun to go down this rabbit hole. The UI alone was a nightmare to get working, but this was a lot more
+challenging than any other android app I've worked on.
+
+Also, at the start, I tried using the [Gstack](https://github.com/garrytan/gstack). This thing burned through
+tokens for no good reason. Just planning for the sake of planning. My Claude Pro membership could not keep up.
+Would not recommend for personal projects in my opinion.
+
+## Stack
+
+- **React Native 0.74** — UI and JS layer
+- **Kotlin** — native modules (depth inference, plane detection, tilt sensor)
+- **Depth Anything V2 Metric Indoor** (ONNX) — monocular metric depth model
+- **ONNX Runtime Android** — on-device inference
+- **OpenCV 4.9** — ORB feature detection, RANSAC for plane confidence
+- **VisionCamera v4** — camera access and JSI frame processor plugin

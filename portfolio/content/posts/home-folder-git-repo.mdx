@@ -1,0 +1,101 @@
+---
+title: Treating your home folder like a git repo
+description: How I manage dotfiles, scripts, and server configs across multiple machines without a dotfile manager.
+date: "2026-02-10"
+tags: [Linux, git, home lab, workflow]
+---
+
+My home folder on every server is a git repository. Not a bare repo, not a clever symlink setup, not
+a dotfile manager, just `git init` in `~`, a `.gitignore` that excludes everything by default, and
+then explicit opt-ins for the things I actually want tracked.
+
+To be honest, it is a very stupid idea. Stupid enough to work.
+
+## The problem it solves
+
+I have somewhere around eight machines I SSH into regularly: two Proxmox nodes, a TrueNAS box,
+multiple Docker containers, and my laptops. Each one accumulates config drift over time: a
+`.bashrc` alias added here, a cron job there, an SSH config tweak somewhere else.
+
+This originally started because I want to to be able to copy over all of my .vim configuration
+for neovim to all my machines. Running scp multiple times felt stupid, but spending hours
+curating a repo for all my servers. That's time well-spent.
+
+The classic approaches:
+- **Symlinked dotfiles repo**: works, but requires a setup step on every new machine, and breaks
+when something expects the file to actually exist at `~/.bashrc` rather than being a symlink
+- **Dotfile managers** (chezmoi, yadm, etc.): powerful, but yet another tool to install and
+remember how to use
+- **"It's fine, I'll just re-configure from memory"**: not fine
+
+A git repo in `~` solves all of these with zero tooling beyond git.
+
+## The .gitignore trick
+
+The key is inverting the default. The `.gitignore` starts with `*`, which ignores everything. Then
+you add back what you want:
+
+```gitignore
+# ignore everything
+*
+
+# opt in to specific files and folders
+!.gitignore
+!.bashrc
+!.vim/
+!.vimrc
+!.bash_aliases
+!.ssh/config
+!Scripts/
+!compose-docker/
+!Ansible/
+!cron
+```
+
+Everything not explicitly allowed is invisible to git. `git status` only shows files you care about.
+You never accidentally commit sensitive files because they're not tracked in the first place.
+
+## Workflow
+
+On any machine where I want this:
+
+```bash
+cd ~
+git init
+git remote add origin <repo-url>
+git pull origin main
+```
+
+That's it. The scripts, aliases, and configs that were in the repo are now on the machine.
+If there is any additional bootstrapping required, I can run the relevant Ansible playbooks
+or the .sh scripts. It's really incredible.
+
+When I change something (add an alias, update a script, modify a cron job), I commit and push.
+Other machines pull when convenient. It's not real-time sync, but for config files that change
+rarely, it doesn't need to be.
+
+## What I actually track
+
+- `.bashrc` and `.bash_aliases`: the most-changed files, since I'm always adding shortcuts
+- `Scripts/`: all my maintenance and automation scripts, committed so every machine has them
+- `compose-docker/`: Docker Compose definitions for every service, so spinning up a container on a
+new host is just `docker compose up -d`
+- `Ansible/`: playbooks for fleet-wide operations
+- `cron`: a backup of the crontab, committed after changes
+- `hosts`: local `/etc/hosts` additions
+- `.vim/`: vim and neovim configuration
+
+## What I don't track
+
+- `.ssh/private keys`: obvious
+- `.config/`: too much app-specific noise, handled separately by the backup scripts
+- Literally everything else...
+
+## Why not a proper dotfile manager
+
+I've used chezmoi. It works well. But it's another binary to install on every machine, another set
+of commands to remember, and another layer of abstraction between me and what the files actually
+look like on disk. The git approach requires nothing except git, which is already on every machine I
+use.
+
+I like this solution because it's very much me. Stupid, but somehow works.

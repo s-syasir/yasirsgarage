@@ -1,0 +1,73 @@
+---
+title: yasirsgarage.org
+description: This portfolio — a Next.js monorepo with a live location feed and MDX-powered writeups.
+date: "2025-12-20"
+tags: [Next.js, TypeScript, Tailwind, MDX]
+github: https://github.com/s-syasir/yasirsgarage
+---
+
+## What it is
+
+The site you're reading right now. A personal portfolio built to be hosted on my home server and 
+to do whatever I want :).
+
+## Structure
+
+It lives in a monorepo alongside the backend service that processes my location data.
+
+```
+yasirsgarage/
+├── portfolio/          ← Next.js 15 app (this site)
+└── locationservice/    ← A TS backend script that processes the location data my phone sends
+```
+
+## Interesting bits
+
+**Live location** — The `/whereisyasir` page (password-protected) shows a live map of my current
+location, fed by my phone via the Home-Assistant android app. The locationservice TS backend script
+takes in the coordinates that the Home-Assistant app sends out to it and then processes it and creates
+a location.json.
+
+The portfolio reads a `location.json` file written by the backend and renders the /whereisyasir
+page accordingly with a map filled with previous locations, current locations, etc, protected
+by a password (please if you find a way to get past the password protection, please let me know :))
+
+The page also shows an approximate city hint before you enter the password, geocoded at a coarser
+zoom level so it gives away a general area but not a precise location.
+
+**Resume system** — The `/resume` page renders from a single `resume.json` file. Updating that file
+updates the page, the PDF, and the Word doc all at once. No more keeping three versions of a resume
+in sync.
+
+The `/resume/pdf` route spins up a headless Chromium instance via Puppeteer, renders the resume HTML,
+and serves a clean PDF download with no browser header/footer noise. The `/resume/docx` route uses
+the `docx` package to build a proper Word document with real tab stops for right-aligned dates and
+locations, real list bullets (for ATS parsers), and clickable hyperlinks on the contact row.
+
+The resume page itself censors the email and phone number in the web view so they are not harvestable
+by crawlers or scrapers. The actual values only appear in the downloaded files.
+
+This resume page took a lot of effort and was very fun to make, here's a
+[post](/posts/resume-as-code) talking all about it.
+
+**MDX writeups** — Projects and blog posts are MDX files in `content/`. No CMS, no database — just
+files in a repo. Posts and projects can cross-link to each other using a `<ProjectLink slug="..." />`
+component that resolves the slug to a title and href at build time.
+
+**Filtering and search** — The projects and posts pages have a live search input and tag filter chips.
+Clicking a tag on any card activates that filter, clicking the same tag again clears it.
+
+**Design system** — Four CSS variables (`--background`, `--foreground`, `--accent`, `--muted`) and
+three fonts (Syne for headings, DM Sans for body, JetBrains Mono for code). Everything else is
+Tailwind.
+
+## Stack
+
+- **Next.js 15** (App Router, Turbopack)
+- **TypeScript**
+- **Tailwind CSS v4**
+- **next-mdx-remote** for content rendering
+- **react-leaflet** for the location map
+- **puppeteer** for server-side PDF generation
+- **docx** for Word document generation
+- **remark-gfm** for tables and extended Markdown in MDX

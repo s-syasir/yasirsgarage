@@ -1,0 +1,91 @@
+---
+title: LocalRAG
+description: A chat that is informed with your Joplin notes using a local LLM. No cloud, no API keys, nothing leaves your machine.
+date: "2026-05-30"
+tags: [Python, Ollama, ChromaDB, RAG, AI]
+github: https://github.com/s-syasir/LocalRAG
+---
+
+## What it is
+
+A fully local RAG (Retrieval-Augmented Generation) system that lets you ask questions against your
+Joplin notes and get answers from an LLM running on your own hardware. No API keys, no cloud, no
+data leaving your device.
+
+## Why I built it
+
+A friend of mine had shown me how they use a RAG at his job for searching through presentations,
+documents, etc and can then ask the chat something like "what was the presentation from July 1st about".
+
+I thought this was great because I've obssessed over all my hobbies, projects and interests and used
+to create txt files to store information about them (a niche link that would fix a rogue Linux error on my laptop, etc). 
+
+Luckily, over the years, I've gotten more sophisticated and moved over to using Joplin to store my notes.
+However, the problem is that the notes are incredibly long. They're organized *enough* and ultimately if I
+need to directly search through them, I *can* find what I am trying to find. However, search only works when you
+remember the exact words you used. I wanted to ask questions in plain English and get answers with
+sources, without handing my notes to OpenAI to do it.
+
+## How it works
+
+My PC/Laptop have the Joplin app installed on them, so I have access to the Joplin SQLite DB directly.
+
+
+Thus:
+
+```
+Joplin SQLite DB
+      │
+      ▼
+  ingest.py  ── sentence-transformers ──► ChromaDB (vector index)
+                                                │
+                                          similarity search
+                                                │
+  Your question ─────────────────────► relevant note chunks
+                                                │
+                                                ▼
+                                         Ollama (local LLM)
+                                                │
+                                                ▼
+                                        Answer + sources cited
+```
+
+**Ingest** — reads directly from Joplin's SQLite database (no Joplin API, no export step), splits
+notes into overlapping chunks, embeds them with `all-MiniLM-L6-v2`, and stores them in ChromaDB.
+
+**Query** — your question gets embedded the same way, ChromaDB finds the most relevant chunks by
+cosine similarity, and those chunks are passed as context to the LLM.
+
+**Answer** — the LLM answers grounded in your notes and cites which notes it drew from.
+
+## Stack
+
+| Component | Technology |
+|---|---|
+| LLM | Ollama — runs models locally |
+| Embeddings | `sentence-transformers/all-MiniLM-L6-v2` |
+| Vector DB | ChromaDB |
+| UI | Gradio |
+| Notes source | Joplin SQLite (read-only, direct DB access) |
+
+Runs on AMD (ROCm), Nvidia (CUDA), or CPU. Default model is `qwen2.5:14b` — sized for 8–16 GB VRAM,
+swappable in `.env`.
+
+## Why it works (just for me)
+
+Currently, I don't have a server with a GPU that runs 24/7. As you might see in my server stack, my
+"GPU" for encoding videos is just the IGPU on an intel CPU. Therefore, I need this solution (as flawed
+as it might be) to be fast enough to run either on my laptop or my PC (without outside compute). This is why
+I opted for the lightweight ollama model which might get things wrong, but it will point me towards
+the right sections of the notes, etc.
+
+I could use something like [Zo Computer](https://www.zo.computer/) (shameless plug for the startup my friend works for),
+to take in my notes and then ask it about them for sure. However, then I surrender my notes to a 3rd party 
+and I just appreciate having control over things.
+
+## What I'd do differently
+
+Full rebuild on every ingest is fine for a personal notes collection but doesn't scale. A proper
+incremental ingest. I.e: tracking note modification timestamps, only re-embed changed notes.
+
+This would make re-indexing instant rather than a couple of minutes.

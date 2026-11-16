@@ -1,0 +1,44 @@
+---
+title: "Why I love Tailscale"
+description: "How Tailscale replaced my entire port-forwarding and VPN setup with one command."
+date: "2026-02-03"
+tags: [Tailscale, networking, self-hosting]
+---
+
+Before Tailscale, accessing my home lab from outside the house meant: port forwarding on the router,
+dynamic DNS to track my home IP, certificates for HTTPS, and constant anxiety about exposing
+services to the internet.
+
+And.. within 2 days, I had IPs from all over the globe hitting my homelab. Further research suggested that
+exposing ports on your home network is a risky way to expose it. While that may be the true "self-hosted"
+solution, it requires a lot of extra work (dynamic IP services, firewall configuration, etc) to make it
+viable.
+
+Tailscale replaced all of that with `tailscale up`.
+
+## What it actually does
+
+Tailscale is a WireGuard mesh VPN. Every device you install it on gets a stable private IP
+(100.x.x.x range) and can reach every other device on your tailnet, regardless of what network
+you're on. No public IPs, no port forwarding, no NAT traversal headaches. It handles all of that.
+
+## The setup that changed things
+
+Every LXC container and VM in my Proxmox setup runs Tailscale. So from my laptop, I can reach damn near everything I need.
+
+No firewall rules to update. No certificates to manage for internal access. If you have access 
+to my tailnet, you are probably me. If you aren't me, there is a bigger problem...
+
+## The one thing to know
+
+Tailscale's free tier allows 100 devices. For a home lab, you'll never hit that. For a small team,
+it's worth paying for.
+
+Exit nodes are the killer feature I didn't know I wanted. You can route your traffic through any
+device on your tailnet, which effectively gives you a personal VPN with your home IP. Personally,
+I route a lot of my traffic via my docker host that hosts my pihole. This allows me to setup
+rules on my pihole to continue aggressively blocking ads while I'm on the go.
+
+NOTE: I have not tested out how slow/fast the exit node would be from a country outside of the US.
+I assume it's quite slow, but I'd rather a slow connection free of ads instead of a "fast" one
+being bogged down with ad spam.

@@ -1,0 +1,96 @@
+---
+title: Running a local voice assistant with Home Assistant
+description: How I set up Whisper, Piper, and openWakeWord on Home Assistant to build a fully local Jarvis. No cloud, no Alexa, no Google.
+date: "2025-04-15"
+tags: [Home Assistant, AI, self-hosting, privacy]
+---
+
+I've been using "Jarvis" as a wake word for a local voice assistant running in Home Assistant for a
+while now. Everything runs on-device: wake word detection, speech-to-text, text-to-speech, and
+intent handling. Nothing leaves the house.
+
+This was primarily configured using Network Chucks' [tutorial](https://www.youtube.com/watch?v=XvbVePuP7NY)
+
+## The stack
+
+**openWakeWord**: listens continuously for the wake word. Runs at very low CPU because it's a small
+model doing binary classification. Configured with a threshold of 0.3 to reduce false negatives (the
+default is higher and misses too often when there's background noise).
+
+**Whisper**: speech-to-text. The `base` or `small` model runs fine on the machine I have, but it
+introduces a noticeable delay between "Jarvis, what's the weather" and the response starting. The
+`tiny` model is faster but noticeably worse at understanding. I run `small.en`, as English-only
+models are faster than multilingual.
+
+**Piper**: text-to-speech. Converts the response text to audio. Fast, sounds decent, entirely
+local.
+
+**AssistMicrophone**: connects a physical USB microphone and speaker to the pipeline. This is the
+piece that ties everything together into an always-listening device.
+
+## The critical config mistake to avoid
+
+The IoT VLAN I run Home Assistant on has no outbound internet access, intentionally, because IoT
+devices are not trustworthy. But Piper, by default, is configured to download a voice model if it
+doesn't find one locally.
+
+On a cold boot, Piper tries to download the model, hits the firewall, times out, and crashes. Home
+Assistant's watchdog sees Piper as crashed and restarts it. It tries the download again. Infinite
+restart loop, nothing works.
+
+Fix: in Piper's add-on configuration, explicitly point it at the locally-installed model and disable
+any auto-update or download behavior. Download the model once from a connected machine, load it in,
+then air-gap it.
+
+Same issue applies to the watchdog itself. If any of these add-ons get caught in a restart loop,
+it'll drive you insane. Disable the watchdog for Whisper, Piper, openWakeWord, and AssistMicrophone
+once you've confirmed they start cleanly. They're stable enough not to need babysitting.
+
+## Noise suppression matters more than you'd think
+
+Without noise suppression, Whisper catches fragments of music, TV, and fan noise and tries to
+transcribe them as commands. AssistMicrophone has noise suppression built in. Set it to medium or
+high. At medium, it handles a TV in the next room without issues. At high, it handles music playing
+in the same room, though accuracy drops slightly.
+
+## Custom intents
+
+The built-in voice assistant understands Home Assistant entity commands ("turn off the lights",
+"lock the front door") out of the box. Custom commands require YAML intent files.
+
+I have two custom intent files:
+
+**Outdoor weather**: `sensor.airgradient_open_air_temperature` is an outdoor air quality sensor.
+The intent reads that sensor and formats a spoken response. Home Assistant's built-in weather entity
+gives forecast data; this gives the actual reading from the sensor 2 metres from my front door.
+
+**Music controls**: pause and resume VLC. Music Assistant handles playback from Jellyfin; VLC is
+the media player add-on that AssistMicrophone talks to. The Piper TTS response ("Pausing the music")
+plays through the same speaker a fraction of a second after the music stops, which is a small UX
+detail that makes it feel more finished.
+
+## Curtain control
+
+The curtains have Zigbee motors. The tricky part: "open the curtains" actually means "close one
+motor and open the other" because of how they're mounted. I made two HA scripts that cross-map the
+actions, exposed them to voice with aliases, and now "open curtains" does the right thing without me
+having to think about it.
+
+## What works well, what doesn't
+
+**Works well:**
+- Lights, switches, locks, covers: any entity Home Assistant controls
+- Reading sensor values
+- Simple timer-based automations triggered by voice
+- Music play/pause
+
+**Doesn't work well:**
+- "Play [song name]": Music Assistant voice support exists but requires additional blueprint setup
+and is fiddly
+- Multi-step conversations: this is not a reasoning model; it pattern-matches against intent
+sentences
+- High ambient noise environments: accuracy drops off noticeably above a certain noise floor
+
+The model is Whisper, not GPT. It transcribes what it hears and matches against pre-defined sentence
+patterns. That's both its limitation and why it's fast and private: there's no LLM inference
+happening.

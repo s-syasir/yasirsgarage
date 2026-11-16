@@ -1,0 +1,103 @@
+---
+title: My home lab backup strategy (and why I have three layers)
+description: Local snapshots, NAS rsync, and encrypted cloud. How I think about backups and what it took to actually get there.
+date: "2026-01-28"
+tags: [home lab, backups, self-hosting, Linux]
+---
+
+I used to think having a NAS was a backup strategy. It isn't. A NAS is RAID, and RAID is redundancy,
+protection against a drive failing. It doesn't protect you against accidentally deleting
+something, a ransomware-style script trashing your data, or the NAS itself dying.
+
+Backups and redundancy are different problems.
+
+## Layer 1: local machine backups to the NAS
+
+Every machine in my lab runs a backup script that rsyncs its important state to TrueNAS over SSH.
+What gets backed up:
+
+- `/etc`: system config, package sources, network config
+- `/sbin`: custom binaries
+- `~/.ssh`, `~/.config`, `~/.local`: user config and app data
+- Docker container data directories: the actual data, not just the compose files
+- Installed package list: so I can reproduce the package state on a new machine
+- Crontab
+
+For Docker containers, I stop them before copying their data. A running database that's mid-write is
+not a backup. The sequence is: `docker compose down` → rsync data → `docker compose up`. This adds a
+few minutes of downtime but gives you a consistent snapshot.
+
+The Docker backup script also uses `ionice -c 3` (idle I/O priority) and periodically drops the page
+cache during large copies. Without this, backing up a few hundred GB of container data can make the
+host unresponsive for everything else.
+
+Hell if you want to be annoying, you could probably spam loading this website at ~6 pm pacific time 
+because that is when that backup happens on the same machine that hosts this website. Maybe the spamming
+would make the website unusable.
+
+## The archetypes pattern
+
+Each machine's backup lands in `Store/backup/<machine-name>/`. After the backup completes, it's
+also mirrored to `Store/archetypes/<machine-name>/`.
+
+`archetypes/` is the "known good" reference. It only ever contains a clean copy of a machine's
+config, no transient state, no half-completed operations. When I'm rebuilding a machine from
+scratch and need to know what the config looked like, I check `archetypes/`, not the timestamped
+backup.
+
+## Layer 2: remote backup to Backblaze B2 + Proton Drive
+
+The NAS holds all the local backups, which means the NAS is a single point of failure for the backup
+layer. House fire, flood, theft: the NAS goes, the backups go with it.
+
+I sync a defined list of critical folders to two cloud destinations using rclone:
+
+- **Backblaze B2**: fast, cheap, S3-compatible
+- **Proton Drive**: jurisdiction diversity and end-to-end encrypted at the provider level
+
+Both use rclone's `crypt` remote, which encrypts file contents and filenames client-side before
+upload. Even if either provider has a breach, my data is just opaque blobs. The rclone crypt
+passphrase lives in my Vaultwarden (self-hosted Bitwarden), not on any of the machines doing the
+syncing.
+
+Now obviously, if my servers burn down, then I lose that rcrypt key. Except the way I have 
+vaultwarden configured on all my devices, is that I can just grab passwords if I know my vault
+password. It might be an outdated vault if it is not syncing actively (because the server is burned down), 
+but that crypt key is not changing any time soon, so it *should* be there.
+
+The list of folders to sync lives in a single `min_sources.txt` file. "Min" as in minimal, meaning
+only the genuinely irreplaceable stuff. Anything that can be re-downloaded or rebuilt doesn't get
+synced remotely.
+
+Proton Drive has tight rate limits, so the sync script is deliberately throttled:
+
+```bash
+rclone sync "$folder" "proton_crypt:Backup/$folder_name" \
+  --transfers 1 --checkers 1 --tpslimit 1 --tpslimit-burst 1
+```
+
+B2 is more forgiving:
+
+```bash
+rclone sync "$folder" "b2_crypt:Backup/$folder_name" \
+  --transfers 4 --checkers 8
+```
+
+## Layer 3: Syncthing for actively-edited data (Non-servers)
+
+Syncthing is an incredible tool for configuring rsync-style backing up of folders that allows for file versioning,
+ignoring files and other rich features for backing things up.
+
+My laptop, PC and phone (android) all have some version of syncthing that runs which backs up specific folders on them.
+
+## What I actually learned
+
+**1-2-3 rule is real.** Three copies, two different media, one offsite. Before I built this, I had
+"it's on the NAS" and told myself that was fine. It wasn't.
+
+**Test restores, not just backups.** I periodically restore a file from each layer to confirm the
+backup is actually usable. A backup you've never restored from is just a directory full of files you
+hope are correct.
+
+**Automation or it doesn't happen.** The backup scripts run from cron. Not from reminders on my calendar.
+The day you're too busy to run the backup manually is usually the day before something breaks.

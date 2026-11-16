@@ -1,0 +1,61 @@
+---
+title: "How much value can ONE domain purchase actually give me?"
+description: "I purchased 1 domain off of Cloudflare (the one you're reading this website off of). Here's all I do with it"
+date: "2026-07-06"
+tags: [home lab, self-hosting, privacy, networking]
+---
+
+## The domain
+Alright Alright Alright. This post might come across as an advertisement for Cloudflare.
+I think a good product markets itself. This is sort of what's happening here.
+Right now, I use the domain: yasirsgarage.org for 3 things. All of which have incredible value.
+
+## What I've built on top of it
+
+None of the three things above are really about the domain itself, they're about what having one
+lets you glue together. A domain is just a name Cloudflare will let you point wherever you want, and
+once you have that, three unrelated problems all get solved by the same trick:
+
+- **A public face for the homelab.** The portfolio site you're on right now sits behind a Cloudflare
+  tunnel, so my home server never has an inbound port open to the internet, Cloudflare terminates
+  the connection and tunnels it back to me. Free, and I get DDoS protection and TLS I didn't have to
+  configure myself.
+- **A private, memorable front door for everything else.** Pi-hole handles local DNS and forwards
+  any `*.yasirsgarage.org` request to Traefik, which routes it to whatever service actually needs it.
+  So instead of memorizing which port `192.168.x.x` I bolted a service to six months ago, I just go
+  to a subdomain like `service.yasirsgarage.org`, on my LAN or over Tailscale, and it's already wearing a valid
+  HTTPS cert.
+- **Email that isn't tied to a provider.** SimpleLogin sits behind the domain and generates aliases
+  that forward to my real inbox, which I keep off the internet entirely. `portfolio@yasirsgarage.org`
+  on the contact page is a real, working alias, replying from it looks exactly like replying from
+  that address, and if it ever gets spammed into oblivion I delete the alias and mint a new one. My
+  actual email address never has to touch a public page.
+
+Three completely different pieces of infrastructure, tunneling, reverse proxying, and email routing,
+all hanging off one domain name.
+
+## The value breakdown
+
+My domain costs 10 bucks a year. It is one of the cheapest recurring costs in this whole home lab,
+and it's doing the job of several things that would otherwise each need their own solution:
+
+- Without it, exposing the portfolio publicly means either opening a port on my home router directly
+  (no thanks) or paying for hosting somewhere else. The tunnel gets me public hosting on my own
+  hardware for the price of the domain alone.
+- Without wildcard DNS through Pi-hole and Traefik, every self-hosted service either lives at a raw
+  `ip:port` I have to remember, or needs its own manually-issued TLS cert. Traefik handles
+  certificates automatically off the one domain, so adding a new service is "give it a subdomain,"
+  not "go set up TLS again."
+- Without the domain, email aliasing tools like SimpleLogin have nothing to alias against, I'd be
+  handing out my real address (or a generic Gmail alias that looks exactly like everyone else's) on
+  a public contact page.
+
+Add it up and one domain is quietly subsidizing hosting, networking, and email privacy, three
+categories that would otherwise be three separate bills or three separate compromises.
+
+## Would I do it again
+
+Immediately, and it'd be one of the first things I'd set up in any home lab from scratch. It's not
+flashy the way a new server or a new self-hosted app is, but almost everything else I've built leans
+on it existing. Pull the domain out and the tunnel, the reverse proxy, and the email aliases all stop
+making sense at the same time.

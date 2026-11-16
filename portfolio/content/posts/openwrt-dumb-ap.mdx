@@ -1,0 +1,95 @@
+---
+title: OpenWRT as a dumb access point behind a UDM Pro
+description: How I set up a Linksys E8450 running OpenWRT as a proper WiFi 6 access point, with the UDM Pro handling all routing and DHCP.
+date: "2025-10-15"
+tags: [networking, OpenWRT, home lab, WiFi]
+---
+
+My network runs behind a Ubiquiti UDM Pro for routing, firewall, and VLAN management. The UDM Pro's
+built-in WiFi isn't great for coverage in my place, so I added a dedicated access point running
+OpenWRT.
+
+The setup is called a "dumb AP": the access point handles WiFi only, with no routing, NAT, or DHCP
+of its own. All of that stays on the UDM Pro.
+
+## Why OpenWRT
+
+Commercial access point firmware is almost always a step behind on features, security patches, and
+driver quality. OpenWRT puts you on current Linux drivers and gives you full control over every
+setting, without waiting for the manufacturer to ship an update.
+
+The hardware I went with: **Linksys E8450** (also sold as Belkin RT3200). It's a WiFi 6 router with
+a MediaTek MT7622 chip that OpenWRT supports well. Cheap, fast, and the community has proper
+production-quality firmware for it.
+
+## Installing OpenWRT on the E8450
+
+Steps:
+1. From the [E8450 device page](https://openwrt.org/toh/linksys/e8450), follow the link to the UBI
+installer GitHub
+2. From the releases page, download both the **signed recovery image** and the **sysupgrade image**
+3. Flash the recovery image via the stock firmware's update page
+4. SSH into the router (default `root@192.168.1.1`, no password) and install LuCI:
+   ```bash
+   opkg update && opkg install luci
+   ```
+
+After this, you have a fully functional OpenWRT router. The next step is converting it to dumb AP
+mode.
+
+## The dumb AP configuration
+
+The most important thing, which is barely mentioned in the official docs and is the source of most
+"it's not working" questions:
+
+**The cable from your upstream router goes into a LAN port, not the WAN port.**
+
+The WAN port stays unused. You're not routing, you're bridging. Plug the UDM Pro's downstream into
+any of the E8450's LAN ports.
+
+Then in LuCI:
+1. Set a static IP for the AP within your network range (e.g. `192.168.1.2` if your subnet is
+`192.168.1.x`)
+2. Set the gateway to your UDM Pro's IP
+3. Set DNS to your DNS server (mine points at Pi-hole)
+4. **Disable DHCP** on the LAN interface, the UDM Pro handles DHCP
+5. Delete or ignore the WAN interface, it's unused
+
+The AP now passes all traffic to the UDM Pro, which handles routing, DHCP, and DNS. Clients
+connected to the AP get IPs from the UDM Pro's pool. VLANs configured on the UDM Pro carry through
+to the AP correctly over the tagged trunk port.
+
+## WiFi configuration
+
+The E8450 supports WiFi 6 (AX). In LuCI → Network → Wireless:
+
+- Set country code to US (or your actual country, as this affects power limits and channel
+availability)
+- 2.4GHz: AX+N mode for broad compatibility
+- 5GHz: AX mode for max throughput
+- Encryption: WPA2 minimum; WPA3 where your devices support it
+
+I use the same SSIDs as the UDM Pro's built-in radios so devices can roam transparently between the
+AP and the router's own radio.
+
+## What I keep in the config backup
+
+OpenWRT has a built-in backup/restore function. I keep config backups in the notes alongside the
+router settings:
+
+- `backup-main-2025-06-07.tar.gz`: main AP
+- `backup-guest-2025-06-07.tar.gz`: guest AP (same setup, different SSID and VLAN)
+
+After a firmware upgrade, restoring from backup gets the AP back to a working state in under a
+minute.
+
+## Why not Ubiquiti's own APs
+
+I looked at UniFi APs for this. They're good hardware. But they require running UniFi Network
+Controller somewhere (either a Cloud Key, a Dream Machine, or a self-hosted instance) to manage. I
+already have a UDM Pro handling the network. Adding Controller management for the APs is more
+infrastructure overhead than a standalone OpenWRT AP.
+
+The UDM Pro + OpenWRT AP combination is a bit of a hybrid, but it works cleanly: the UDM handles
+everything it's good at (firewall, routing, VLANs, threat management), and the OpenWRT AP handles
+WiFi with no additional management plane.

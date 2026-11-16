@@ -1,0 +1,90 @@
+---
+title: Building a Mini-ITX NAS that doesn't suck
+description: How I spec'd and built NASIR, a Jonsbo N1 SFF NAS running TrueNAS inside Proxmox, with four WD Red Plus drives and lessons learned.
+date: "2025-11-01"
+tags: [home lab, NAS, hardware, TrueNAS, Proxmox, ZFS]
+---
+
+I needed centralized storage for the home lab, somewhere to land backups from every other machine AND
+all of my parents' laptops.
+
+I also need to serve media to Jellyfin and hold NFS shares for Docker volumes. The options were: buy a Synology,
+repurpose an old machine, or build something properly.
+
+I built Nasir.
+
+## The hardware
+
+**Case: Jonsbo N1**: a Mini-ITX SFF tower designed for NAS builds. Five 3.5" drive bays, an SFX PSU
+slot, and barely bigger than a shoebox. It's the rare case where form factor and function actually
+align.
+
+**Motherboard: Gigabyte AORUS B660I Pro DDR4 Mini-ITX**: needs a BIOS update before Intel 12th gen
+CPUs post. That's the gotcha that'll cost you an afternoon if you don't know about it.
+
+**CPU: Intel i5-12400**: 6 cores, 12 threads, T-dp of 65W. Plenty for Proxmox + TrueNAS VM +
+whatever else needs to run on it. Also, it has an integrated GPU, very useful for transcoding.
+
+**RAM: G.Skill RipJaws 64GB DDR4 3600**: probably overkill for a NAS, but ZFS loves RAM for the ARC
+cache and I didn't want to think about memory pressure later. I did not opt for ECC RAM because I
+was just out of college and didn't want to spend the extra cash and now I can't afford ECC RAM
+because everyone and their mother wants some :).
+
+**Storage:**
+- OS SSD: Samsung 500 Gigs (Proxmox + TrueNAS VM land here)
+- Data: WD Red Plus 8TB × 4 (SATA 6Gb/s, 5640 RPM)
+- PCIe SATA card: MZHOU 2-port PCIe 3.0 GEN3 JMB582, adding the two extra SATA ports the
+motherboard doesn't have natively
+
+**PSU: Corsair SF600 SFX 80+ Platinum**: the N1 takes SFX form factor, and this is the gold
+standard pick for SFX builds.
+
+## The PCIe SATA card gotcha
+
+The B660I board has strict PCIe compatibility. The SATA expansion card **must** be PCIe 3.0 GEN3. I
+found out the hard way that cards using earlier JMicron chips (JMB58x without the 3.0 spec) cause
+intermittent drive detection failures. The MZHOU JMB582 works.
+
+## Why TrueNAS inside Proxmox instead of bare metal
+
+Running TrueNAS as a VM on Proxmox means the NAS function is isolated from everything else the
+machine might do. If I want to run a small service on the same hardware, I spin up another VM.
+
+The tradeoff: PCI passthrough. For ZFS to work properly with TrueNAS, the SATA controller needs to
+be passed through to the TrueNAS VM directly (not emulated). This requires IOMMU enabled in BIOS and
+the right kernel flags. With systemd-boot (UEFI install) rather than GRUB, the flag goes in a
+different config file than most guides assume, something to watch for.
+
+^ That entire sentence above felt like black magic when I first did it. Pass-through and the niche
+configurations around it could be a whole different entry on this portfolio website. It is both
+the most frustrating part of this setup, but also teaches me the most. A recurring theme.
+
+## ZFS: RAID-Z or RAID 10?
+
+With four drives, the options are:
+- **RAID-Z1**: one parity drive, ~24TB usable, survives one drive failure
+- **RAID-Z2**: two parity drives, ~16TB usable, survives two failures  
+- **RAID 10**: mirrored pairs, ~16TB usable, better random read/write performance
+
+I went with RAID-10. For a home backup, 1 failure is enough buffer. Technically, RAID-10 can handle two failures.
+However, there is no guarantee that two failures come from different mirrored pairs.
+
+If I have a failed drive and another fails within 2 days, I have a bigger problem.
+Odds are the second I have a failed drive notification, I
+will swap in a new drive ASAP (or with current prices, take out a loan to buy another one...).
+
+## Airflow in the Jonsbo N1
+
+The N1's default front panel is a solid metal piece with a mesh layer behind it. Pull the solid
+panel off and use just the mesh. It's removable and makes a meaningful difference to airflow. The
+HDDs sit directly behind it.
+
+The default 80mm fan that ships with the case is adequate but loud under load. The NAS sits in the same
+room that I sleep in. I'd rather it be quiet if I have it on while going to sleep.
+A 140mm PWM fan (Noctua A14, zip-tied to the front mount) brings temperatures down and noise with it.
+
+## What runs on NASIR
+
+- TrueNAS VM with SATA passthrough: ZFS pool, NFS shares, snapshots, SMART tests
+- NFS shares mounted on every other machine in the lab for rsync backup targets
+- Backblaze B2 off-site sync via rclone with client-side encryption

@@ -1,0 +1,73 @@
+---
+title: PremierPredictor
+description: Premier League final table projector built from scratch — Elo ratings, Dixon-Coles Poisson regression, and 10,000-run Monte Carlo simulation.
+date: "2026-04-30"
+tags: [Python, Jupyter, Data Science]
+github: https://github.com/s-syasir/PremierPredictor
+---
+
+## What it is
+
+A Premier League season projector that simulates the remaining fixtures 10,000 times and outputs
+final position probability distributions for every team. Three models, all built from scratch in a
+single Jupyter notebook — no black-box ML libraries.
+
+| Layer | Method | What it estimates |
+|-------|--------|-------------------|
+| Team strength | Elo ratings | Relative quality, updated after every match |
+| Goal rates | Dixon-Coles Poisson regression | Expected goals per fixture, fitted on xG |
+| Season outcomes | Monte Carlo × 10,000 | Probability distributions over final positions |
+
+## How it works
+
+**Elo ratings** update after each result. The rating change scales with how surprising the result
+was — a win against a much stronger team moves the needle more than beating a weaker side. Home
+teams get a +100 point bonus built into the expected score formula.
+
+**Dixon-Coles** fits attack and defence parameters for each team using maximum likelihood estimation
+on historical xG data. The model includes a low-score correction (the ρ parameter) that accounts for
+the non-independence of 0-0 and 1-0 scorelines — standard Poisson underestimates how often these
+happen.
+
+**Monte Carlo simulation** uses those fitted parameters to simulate each remaining fixture as a
+Poisson draw, accumulates points, and repeats 10,000 times. The output is a full probability matrix:
+for each team, the probability of finishing in each position.
+
+## Data pipeline
+
+```bash
+./fetch_data.sh   # pull current season + historical data
+jupyter lab PremierPredictor.ipynb
+```
+
+| Source | Provides |
+|--------|----------|
+| Football-Data.co.uk | Match results, Bet365 odds, 2019–present |
+| Understat | xG per match and player |
+
+The notebook auto-archives the current season CSV past June and starts fresh for the new season.
+
+## Why I built it
+
+Honestly, I watched money ball and was very curious about the basic models you can use to predict 
+whole leagues and games. Right now, there is more data collected about individual games than ever before.
+Surely there are interesting ways to parse that data and use it to make future predictions.
+
+I think the 25-26 season is for the Premier League is very interesting to watch. Liverpool was the bookmakers' 
+favorite. However, as the season progressed, it became evident that wasn't the case. The basic models that 
+I worked with here also predicted Liverpool as the winners, so clearly there are things the models just
+can't predict.
+
+The real goal here was to actually understand how prediction models work than plug
+data into sklearn and read off numbers. Building Elo from scratch, fitting a Poisson regression by
+hand, and wiring up the simulation loop forced me to understand each assumption these models make
+and where they all break down.
+
+Also, please watch Moneyball. It's an incredible movie.
+
+## Honest limitations
+
+Elo and Dixon-Coles both assume teams are stationary across a season. In reality a manager sacking,
+an injury crisis, or a transfer window changes a team fundamentally. The models don't know that —
+they only know the results. Projections get more reliable as the season progresses and there's more
+data to fit.

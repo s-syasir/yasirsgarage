@@ -1,0 +1,43 @@
+# Dependencies
+**/node_modules
+
+# Environment files
+**/.env
+**/.env.local
+**/.env.production
+
+# Next.js
+**/portfolio/.next
+**/portfolio/out
+**/portfolio/next-env.d.ts
+**/portfolio/tsconfig.tsbuildinfo
+
+# Expo
+**/location-app/.expo
+**/location-app/dist
+
+# Built services
+**/locationservice/dist
+
+# PM2
+**/.pm2
+
+# Data
+**/portfolio/data
+
+# Resume: real contact details, never committed
+**/portfolio/resume.json
+
+# Private ops notes — infra specifics, never publish
+joplin.md
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude
+.gstack/
+
+# Deployment config (host-specific, lives in ~/yasirsgarageData/)
+**/portfolio/Dockerfile.prod

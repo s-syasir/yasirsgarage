@@ -1,0 +1,196 @@
+@import "tailwindcss";
+
+:root {
+  --background: #080808;
+  --foreground: #f0f0f0;
+  --accent: #4d9fff;
+  --muted: #888888;
+  --border: #1f1f1f;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-accent: var(--accent);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --font-sans: var(--font-dm-sans);
+  --font-heading: var(--font-syne);
+  --font-mono: var(--font-jetbrains-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* MDX prose styles */
+.prose-styles h2 {
+  font-family: var(--font-syne), sans-serif;
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--foreground);
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+  letter-spacing: -0.02em;
+}
+
+.prose-styles h3 {
+  font-family: var(--font-syne), sans-serif;
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-top: 1.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.prose-styles p {
+  color: var(--muted);
+  line-height: 1.75;
+  margin-bottom: 1rem;
+  font-size: 0.925rem;
+}
+
+.prose-styles a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-color: #333;
+  transition: text-decoration-color 0.15s;
+}
+
+.prose-styles a:hover {
+  text-decoration-color: var(--accent);
+}
+
+.prose-styles ul,
+.prose-styles ol {
+  color: var(--muted);
+  padding-left: 1.25rem;
+  margin-bottom: 1rem;
+  font-size: 0.925rem;
+  line-height: 1.75;
+}
+
+.prose-styles li {
+  margin-bottom: 0.25rem;
+}
+
+.prose-styles code {
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 0.8rem;
+  background: #111;
+  border: 1px solid var(--border);
+  padding: 0.1em 0.4em;
+  color: var(--accent);
+}
+
+.prose-styles pre {
+  background: #0d0d0d;
+  border: 1px solid var(--border);
+  padding: 1rem;
+  overflow-x: auto;
+  margin-bottom: 1rem;
+}
+
+.prose-styles pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  color: #c0c0c0;
+  font-size: 0.8rem;
+}
+
+.prose-styles hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 2rem 0;
+}
+
+.prose-styles strong {
+  color: var(--foreground);
+  font-weight: 600;
+}
+
+.prose-styles table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875rem;
+  margin-bottom: 1rem;
+}
+
+.prose-styles thead tr {
+  border-bottom: 1px solid var(--border);
+}
+
+.prose-styles th {
+  text-align: left;
+  padding: 0.5rem 1rem 0.5rem 0;
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 0.75rem;
+  color: #555;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+
+.prose-styles td {
+  padding: 0.5rem 1rem 0.5rem 0;
+  color: var(--muted);
+  border-bottom: 1px solid #111;
+}
+
+.prose-styles tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.service-table th:first-child,
+.service-table td:first-child {
+  width: 27.5%;
+}
+
+/* Leaflet dark popup */
+.leaflet-container .leaflet-popup-content-wrapper {
+  background: #111;
+  border: 1px solid var(--border);
+  border-radius: 0;
+  box-shadow: none;
+  color: var(--foreground);
+}
+
+.leaflet-container .leaflet-popup-tip {
+  background: #111;
+}
+
+.leaflet-container .leaflet-popup-content {
+  margin: 8px 12px;
+}
+
+.leaflet-container .leaflet-popup-close-button {
+  color: #555;
+}
+
+.leaflet-container .leaflet-popup-close-button:hover {
+  color: var(--foreground);
+}
+
+.popup-city {
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--foreground);
+  margin-bottom: 3px;
+}
+
+.popup-time {
+  font-family: var(--font-jetbrains-mono), monospace;
+  font-size: 11px;
+  color: #555;
+}
+

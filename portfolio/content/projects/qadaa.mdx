@@ -1,0 +1,63 @@
+---
+title: Qadaa
+description: Local-only Android app for tracking and making up missed Islamic prayers. No backend, no accounts.
+date: "2026-03-20"
+tags: [Flutter, Dart, SQLite, Android]
+github: https://github.com/s-syasir/Qadaa
+---
+
+## What it is
+
+A personal tool for tracking qadaa: missed Islamic prayers that need to be made up. You log which
+of the five daily prayers you missed or made up, and the app derives your current "prayer debt" from scratch
+each time rather than storing a running total. Your data never leaves your device.
+
+## Why I built it
+
+The apps that existed either required accounts, had questionable data practices, or were cluttered
+with features I didn't need. This is a single-purpose tool for one thing: knowing what you owe and
+chipping away at it.
+
+## How it works
+
+The debt calculation is intentionally stateless: `initial debt + missed days − makeups`. It's
+recomputed fresh every time from the raw prayer log in SQLite. This avoids drift that accumulates
+when you store a running counter. If you ever import a backup or fix an entry, the number
+recalculates correctly without needing a migration. This computation is incredibly cheap and
+therefore it makes more sense to me to do it this way rather than storing the number.
+
+Prayer times are calculated entirely on-device using the [adhan](https://pub.dev/packages/adhan)
+library. You pick your city, calculation method, and madhab in settings. No API calls, no location
+permission required.
+
+## Features
+
+- **Debt calculator** — per-prayer debt derived from log, never a stored total
+- **Prayer times** — on-device calculation, configurable method and madhab
+- **Streak tracking** — consecutive complete days, with persistence of your best streak
+- **Home screen widget** — shows streak, debt, and 5 tap buttons; works while the app is closed
+- **Streak notification** — 9 PM daily alert that adapts based on streak and prayers remaining
+- **Database export/import** — checkpoint + copy `qadaa.db` to a folder Syncthing can reach
+- **Jumu'ah handling** — Friday Dhuhr replaced with Jumu'ah
+
+## Backup approach
+
+All data is in a single SQLite file. Export checkpoints the WAL and copies a clean `qadaa.db` to
+`Download/Qadaa/`. Making it visible to Syncthing (for my own backup purposes). I deliberately avoided
+`Android/data/` because it's sandboxed and invisible to most file sync tools.
+
+Import is a file picker → confirm warning → providers reload automatically.
+
+## Stack
+
+- **Flutter + Dart**
+- **Riverpod** (code-gen) for state
+- **SQLite** via sqflite, WAL mode
+- **adhan** for prayer time calculation
+- **flutter_local_notifications** for the streak alert
+- **home_widget** for the Android widget
+
+## What's next
+
+iOS support is deferred. The Flutter layer is already cross-platform but the widget and
+notification code needs platform-specific work.

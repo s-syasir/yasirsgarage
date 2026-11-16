@@ -1,0 +1,61 @@
+{
+  "name": "Jane Doe",
+  "contact": {
+    "email": "jane@example.com",
+    "phone": "+1 (555) 123-4567",
+    "linkedin": {
+      "label": "linkedin.com/in/janedoe",
+      "url": "https://linkedin.com/in/janedoe"
+    },
+    "github": {
+      "label": "github.com/janedoe",
+      "url": "https://github.com/janedoe"
+    },
+    "website": {
+      "label": "janedoe.com",
+      "url": "https://janedoe.com"
+    }
+  },
+  "education": [
+    {
+      "institution": "State University",
+      "location": "City, State",
+      "degree": "B.S. Computer Science"
+    }
+  ],
+  "experience": [
+    {
+      "org": "Tech Company",
+      "location": "City, State",
+      "role": "Senior Engineer",
+      "dates": "2020 - Present",
+      "bullets": [
+        "Led team of 5 engineers on core infrastructure",
+        "Reduced latency by 40% through optimization"
+      ]
+    }
+  ],
+  "projects": [
+    {
+      "name": "Project Name",
+      "location": "github.com/janedoe/project",
+      "role": "Creator",
+      "dates": "2023",
+      "bullets": [
+        "Developed full-stack application",
+        "1000+ GitHub stars"
+      ],
+      "github": "https://github.com/janedoe/project"
+    }
+  ],
+  "skills": [
+    {
+      "category": "Languages",
+      "items": "TypeScript, Python, Go, SQL"
+    },
+    {
+      "category": "Tools",
+      "items": "React, Node.js, PostgreSQL, Docker"
+    }
+  ]
+}

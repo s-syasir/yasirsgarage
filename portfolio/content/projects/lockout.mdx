@@ -1,0 +1,89 @@
+---
+title: Lockout
+description: NFC-triggered app blocker for Android. No Play Services, no root, no in-app stop button.
+date: "2025-04-10"
+tags: [Flutter, Kotlin, Android, NFC]
+github: https://github.com/s-syasir/Lockout
+---
+
+## What it is
+
+An Android app that blocks distracting apps when you tap an NFC tag — and keeps them blocked until
+you tap the tag again. There is no in-app stop button. The only way out is the tag.
+
+It runs entirely without Google Play Services and **can** work on de-Googled ROMs like GrapheneOS and
+CalyxOS. Currently, I run it on a daily basis on a regular Pixel phone with regular Android OS.
+
+## Why I built it
+
+Every screen time app I tried had the same flaw: a way to turn it off that required no more friction
+than opening the app you were trying to avoid. The whole point is that willpower fails. I wanted a
+physical barrier — something you have to get up and walk to. An NFC tag stuck to a wall across the
+room is that barrier.
+
+Obviously, the company [Brick](https://getbrick.com/) exists. The problem is that their 
+[privacy policy](https://getbrick.com/pages/privacy-policy) sucks. To be honest, this is a flaw
+with damn near any closed-source app and I still use my banking apps, etc. However, I figure phone 
+usage data is quite sensitive, so I would definitely rather keep that private.
+
+I might make general post about my overarching beliefs on privacy and making apps around it, but yeah. That 
+previous paragraph is a brief glimpse I guess.
+
+Also, a brick is 45 dollars.
+It's a glorified piece of plastic with an NFC tag hidden inside. Come on.
+
+## How it works
+
+```
+Tap NFC tag
+    │
+    ▼
+Android NDEF_DISCOVERED intent → MainActivity
+    │  extracts lockout:profile:<uuid> from tag payload
+    ▼
+Flutter picks up the pending tag on resume
+    │  looks up profile in local storage
+    ▼
+BlockingChannel (MethodChannel)
+    │  writes package list to native SharedPreferences
+    ▼
+AccessibilityService (Kotlin)
+    │  TYPE_WINDOW_STATE_CHANGED fires on every foreground change
+    ▼
+Blocked app in foreground → send home instantly
+```
+
+The tag payload is just a UUID — 36 bytes, fits any NTAG213 tag (~$0.50) with room to spare. The
+profile lives in app storage. You can rename or edit a profile without rewriting the tag.
+
+## Key decisions
+
+**AccessibilityService, not UsageStatsManager** — UsageStatsManager requires polling, which burns
+battery and has coarse timing. `TYPE_WINDOW_STATE_CHANGED` fires synchronously: zero polling,
+sub-100ms response.
+
+**Send home, not force-stop** — Apps can't force-stop other apps without root. Sending `ACTION_MAIN
+/ CATEGORY_HOME` is instant, reliable, and doesn't corrupt the blocked app's state.
+
+**Dual SharedPreferences (Flutter + native)** — If an OEM battery saver kills and restarts the
+AccessibilityService without relaunching Flutter, the service reads the block list from native prefs
+in `onServiceConnected`. Flutter prefs handle the human-visible session state. The blocking survives
+app kills.
+
+**No internet permission** — Declared in the manifest and intentionally permanent. No analytics, no
+telemetry, no crash reporting. Ever.
+
+## Stack
+
+- **Flutter** — UI and profile management
+- **Kotlin** — AccessibilityService, NFC dispatch, native prefs bridge
+- **flutter_nfc_kit** — tag read/write
+
+## What's next
+
+Work Profile DPC blocking via `DevicePolicyManager` for Samsung and Xiaomi devices with aggressive
+battery savers that kill the AccessibilityService before it can react.
+
+If you block notifications for an app while the phone is "Locked Out" then when it is unlocked,
+those notifications do not return. I have unfortunately missed a few Whatsapp messages this way. Therefore,
+a notification summary thing is absolutely necessary.

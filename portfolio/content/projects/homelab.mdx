@@ -1,0 +1,143 @@
+---
+title: Home Lab
+description: Self-hosted infrastructure on Proxmox — 30+ services, a multi-tier backup system, UPS monitoring, and a pile of automation scripts.
+date: "2025-06-01"
+tags: [Proxmox, Docker, Linux, Self-hosting, Ansible]
+github: https://github.com/s-syasir/yasirPublic
+---
+
+## What it is
+
+A home server setup running on Proxmox VE with a fleet of LXC containers and Ubuntu server VMs.
+Everything I rely on day-to-day: notes, photos, password manager, media, calendar, budgeting app runs
+here, on hardware I own, in my house.
+
+## Hardware
+
+The cluster has a few machines with names that got out of hand:
+
+- **Lilboi** — despite the name. My main Proxmox node, the workhorse and where you are seeing this right now (on a proxmox VM of course)
+- **Nasir** — TrueNAS, handles all NFS storage and backup targets and any docker services that require a NAS
+- **Babyboi** — lightweight server for smaller services
+- **BliKVM** — IP KVM for headless access to everything
+
+All machines are on Tailscale so I can reach them from anywhere without exposing anything to the
+internet.
+
+## Services
+
+Plenty of containers across multiple Docker hosts. The main ones:
+
+| Category | Services |
+|---|---|
+| Media | Jellyfin, Immich, Invidious |
+| Productivity | Nextcloud, Joplin, Actual Budget, Vaultwarden |
+| Security | Pihole + Unbound, Traefik |
+| Comms | Synapse (Matrix), Mautrix-Discord bridge, Protonmail Bridge |
+| Monitoring | Grafana, Prometheus, NetAlertX, Porttracker, Homepage |
+| AI | Ollama |
+| Dev tools | Portainer, IT-Tools, Stirling-PDF, SearXNG, Linkwarden |
+
+## Networking
+
+- **Pihole + Unbound** — local DNS with recursive upstream resolver (no third-party DNS). 
+Also helps redirect services to their appropriate location. Service.yasirsgarage.org redirects to Traefik.
+- **Traefik** — reverse proxy with automatic Let's Encrypt cert management. Redirects the traffic from pihole to the actual docker service + port without 
+having to expose the port and create security vulnerabilities.
+- **Tailscale** — WireGuard mesh connecting all machines and services; most things are only
+reachable over Tailscale
+
+## Backup system
+
+I try my best to follow a simple 3-2-1 backup system. 3 different copies of the data, 2 sources separate from the origin,
+1 offsite.
+
+**Local backups** — each machine runs scripts that rsync its config, dotfiles, `/etc`, and Docker
+data to Nasir over SSH. Docker containers' data directories are copied with `ionice -c 3` to
+keep the host responsive during the copy.
+
+**Remote backups** — Once a month, rclone syncs critical folders to two cloud destinations in parallel: Backblaze
+B2 and Proton Drive. Both use rclone's `crypt` remote so data is encrypted client-side before
+upload. That password is written down at home in a safe place, standard security practice. Encrypting data before sending
+it out makes it a pain to pull if ever required, but it keeps my data secure as both Backblaze and Proton Drive have no
+idea what the data actually is. It's not truly "self-hosted" but it still follows the principles of privacy and security.
+
+NOTE: Proton drive's API is notoriously unreliable and fails for multiple files. I still back up to it 
+just in case it gets better at handling traffic in the future and because my proton subscription is primarily for the
+email and VPN, the drive is a plus.
+
+**WORK IN PROGRESS: Syncing up with my friend Nithish** — Nithish is a friend of mine who also runs a bunch of self-hosted
+stuff on his own machine. The resume page idea was definitely not stolen from his [portfolio](https://nithishbn.com/)
+We both have Tailscale machines and we both run NASes (NASs? idk). So as a 4th option, I was thinking of re-using the Remote backup scripts that backs up to Backblaze
+and Proton to backup to Nithish's NAS and vice-versa. It would still be encrypted and "remote" so it obeys a 3-2-1 principle
+but ultimately it is just a redundancy for Backblaze and Proton.
+
+## UPS monitoring
+
+A CyberPower CP1500AVRLCD3 is connected to the 'Babyboi' server running NUT (Network UPS Tools).
+Every other machine on the network runs as a NUT client. On a power loss:
+
+1. Clients get notified immediately via NUT's `upsmon`
+2. After 5 minutes on battery, clients begin graceful shutdown
+3. The NUT server shuts down last, after all clients have confirmed clean shutdown
+
+Different client configs exist for different shutdown priorities. Core machines (piholes, wifi routers, etc) are configured to
+stay up longer than others.
+
+## Automation scripts
+
+**starterScript.sh** — bootstraps any new Ubuntu/Debian VM from zero: locks root, pulls the stored
+`.bashrc`, installs the standard package list, sets git config, adds the user to the docker group.
+
+**Grafana dashboard builder** (`build_dashboard.py`) — programmatically builds and imports a system
+health dashboard into Grafana with per-machine CPU, RAM, disk, and temperature panels. Written in
+Python against the Grafana API so the dashboard can be regenerated cleanly if the Grafana instance
+is ever wiped.
+
+**rsyncLocalScripts/** — per-machine rsync job definitions. Each machine has its own sync script
+that knows where to push its data on Nasir. Runs from cron on each host.
+
+**mountingNas/mount-nas.sh** — mounts Nasir's NFS shares. Run once after boot on machines that
+need access to the NAS.
+
+**updateDockerImages.sh** — loops through every folder in `compose-docker/`, brings containers
+down, pulls the latest image, and brings them back up. Skips containers that aren't running on the
+current host (detected by whether `docker compose down` produces output). Run manually weekly to keep
+containers up-to-date.
+
+**diffuser_mqtt.py** — listens on the Home Assistant MQTT broker and controls a room diffuser
+based on a schedule. The diffuser predates any smart plug. It's IR-controlled via `irsend` (LIRC),
+so this script bridges MQTT → IR command.
+
+**WOL scripts** — `wake_nasir.sh` across multiple source machines. Each machine
+has a copy calibrated to the right network interface so Wake-on-LAN packets go out on the correct
+subnet.
+
+**Honestly, to many more to think about. Writing all these mdx-es is exhausting.**
+
+## The repo
+
+The scripts, Docker Compose files and dotfiles behind all of this are published at
+[yasirPublic](https://github.com/s-syasir/yasirPublic).
+
+It's a **redacted mirror**, not the live repo. A build script pulls a chosen subset out of my private
+home folder, strips anything identifying — IP addresses, MAC addresses, SSH keys, domains, mount
+paths, credentials — and drops any file whose contents can't be safely scrubbed rather than
+publishing it with holes in it. Roughly 165,000 tracked files come in; about 158 go out.
+
+Nothing there runs as-is. It's meant to be read.
+
+## What I've learned
+
+Self-hosting at this scale is less about the services and more about the backup and recovery story.
+The first time I lost a container's data to a botched update, I rebuilt the backup system from
+scratch. Now every service has a recovery path I've actually tested.
+
+Moving slowly is best. It's frustrating to not have access to my Joplin notes at times, however, it's best
+that I document what broke and how (even if I cant access my notes app lol).
+Next time when I encounter that issue, it's significantly faster to deal with. It was definitely
+hard to build up the knowledge to deal with problems, but over time it's allowed for a system
+that has had fewer **big** issues.
+
+The last thing: my memory is crappy. Scripts (whether .sh or ansible), rigorous comments, and Joplin notes
+exist specifically because "I'll remember what I changed" is always a lie.

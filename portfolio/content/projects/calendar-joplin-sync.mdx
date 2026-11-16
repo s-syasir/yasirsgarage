@@ -1,0 +1,74 @@
+---
+title: CalendarJoplinSync
+description: Cron script that pulls Nextcloud CalDAV events into a Joplin weekly planning note every morning.
+date: "2025-12-04"
+tags: [Python, automation, Joplin, Nextcloud]
+github: https://github.com/s-syasir/CalendarJoplinSync
+---
+
+## What it is
+
+A Python script that runs at 4 AM via cron, fetches the next 7 days of events from my Nextcloud
+calendars, and inserts them as todo items into my "Weekly Todos" note in Joplin. Duplicate-safe,
+E2EE-aware.
+
+## Why
+
+My weekly planning note lives in Joplin. My schedule lives in Nextcloud Calendar. Copying events
+between them manually was the kind of friction that either kills a planning system or gets automated
+away. Manually copying them over was the kind of small annoyance that either makes you abandon the system or makes you build a script.
+
+## How it works
+
+```
+Nextcloud CalDAV (3 calendars)
+    │  caldav + icalendar libraries
+    │  7-day sliding window (today → today+6)
+    ▼
+Events grouped by date, sorted (all-day first, then chronological)
+    │
+    ▼
+joplin sync → e2ee decrypt → read note
+    │
+    ├── find # DayName section for each event
+    ├── check if event already exists (skip if so)
+    └── append new events as checkboxes
+    │
+    ▼
+joplin edit → e2ee encrypt → joplin sync
+```
+
+Events become checkable markdown todos:
+
+```markdown
+# Tuesday
+
+- [ ] [9 AM] Team standup
+    - [ ] Discuss blockers
+- [ ] All day — someone's birthday
+```
+
+If a calendar event has a description, its lines become sub-checkboxes under the event — useful for
+meeting agendas already written in the calendar invite.
+
+## The E2EE workaround
+
+Joplin notes are end-to-end encrypted. The script can't edit them directly — it has to go through
+the Joplin CLI, which manages the local decrypted working copy. The flow is:
+
+1. `joplin sync` + `joplin e2ee decrypt` — pull and decrypt latest state
+2. Read note, find day sections, insert new events
+exits
+3. Write via `joplin edit` with `$EDITOR` set to a temp script that just writes the content and
+4. `joplin e2ee encrypt` + `joplin sync` — push changes
+
+This is my favorite kind of solution. It's incredibly, but reliable.
+Joplin's CLI wasn't designed for scripted use, and this is the only path that
+works server-side without the desktop app running.
+
+## Stack
+
+- **Python 3** — caldav, icalendar, python-dotenv
+- **Joplin CLI** — note read/write
+- **Nextcloud CalDAV** — calendar source
+- **cron** — 4 AM daily trigger

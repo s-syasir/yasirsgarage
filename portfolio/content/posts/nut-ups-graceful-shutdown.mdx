@@ -1,0 +1,98 @@
+---
+title: Ordered graceful shutdown across a home lab with NUT
+description: How I wired up a UPS to shut down every machine in the right order when the power goes out.
+date: "2026-02-20"
+tags: [home lab, Linux, UPS, NUT, self-hosting]
+---
+
+Power goes out. What happens to your home server?
+
+If you don't have an answer to that question, the answer is: random data corruption, dirty
+filesystem journals, databases that need recovery, and containers that come back in a broken state.
+I've lived through all of those. A UPS buys you time, but it doesn't help unless your machines
+actually shut down cleanly before the battery dies.
+
+This is how I set up Network UPS Tools (NUT) to handle that.
+
+## Hardware
+
+CyberPower CP1500AVRLCD3, 1500VA, USB connected to my main Proxmox node. NUT talks to it over USB
+via the `usbhid-ups` driver.
+
+```
+[cyberpower]
+  driver = usbhid-ups
+  port = auto
+  desc = "CyberPower CP1500AVRLCD3"
+  vendorid = 0764
+  productid = 0601
+```
+
+## The architecture
+
+NUT has three roles: **driver** (talks to the UPS hardware), **server** (`upsd`, broadcasts UPS
+state over TCP), and **monitor** (`upsmon`, watches state and triggers actions on each machine).
+
+My setup:
+- **NUT server** on the main Proxmox node: the only machine physically connected to the UPS
+- **NUT clients** on every other machine: they poll the server for UPS state over the network
+
+When power fails, the server knows first. It broadcasts the state. Every client hears about it.
+
+## The shutdown sequence
+
+This is the part that took the most thought. You can't just shut everything down at once. The NAS
+needs to be the last thing to go, because other machines are still writing to it when the shutdown
+sequence starts.
+
+I have three client configs:
+
+**5-minute clients**: most machines. After 5 minutes on battery, `upssched` fires a
+`shutdown_timer` event, which runs:
+
+```bash
+/usr/sbin/upsmon -c fsd
+```
+
+`fsd` means "forced shutdown": it tells `upsmon` to begin graceful shutdown. If that fails (upsmon
+is down for some reason), it falls back directly to `shutdown -h now`.
+
+**Shutdown-last clients**: the NAS and machines other machines depend on. These use a longer timer
+or are configured to only shut down when `upsmon` receives the `FSD` signal from the primary,
+meaning the primary has already decided everything is shutting down.
+
+**Low battery override**: regardless of timers, if the UPS reports low battery, everything shuts
+down immediately. No waiting for the 5-minute timer.
+
+```
+Power loss detected
+    │
+    ├── immediate: low battery? → all machines FSD now
+    │
+    └── 5-minute timer expires:
+        ├── standard clients → FSD
+        └── (NAS waits for primary FSD signal)
+            └── primary shuts down last
+```
+
+## Why this matters more than you'd think
+
+The failure mode I was trying to prevent: power comes back after 10 minutes, everything boots, but
+the NAS filesystem is dirty because a Docker host was still writing to an NFS mount when it lost
+power. The Docker host's filesystem is clean because it was on the UPS, but the NAS wasn't, so the
+files it wrote are now inconsistent.
+
+With ordered shutdown: Docker hosts stop their containers (writing final state cleanly), unmount
+NFS, then signal done. The NAS sees no active clients, waits for the primary's FSD, then shuts down.
+Everything comes back clean.
+
+## The part everyone skips
+
+Testing. I actually pull the power cord once in a while to verify the sequence works as designed.
+UPS setups have a bad habit of looking correct in config and silently failing in practice. Wrong
+network interface, `upsmon` not running, `upsd` not reachable from a client. The only way to know it
+works is to make it work.
+
+Run `upsc cyberpower` on the server to see current UPS state. Run `upsmon -D` on a client to watch
+what it's receiving. Do a test shutdown with a laptop plugged in to the UPS so you can watch the
+logs without worrying about your monitoring machine going dark.
