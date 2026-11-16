@@ -1,0 +1,8 @@
+{
+  "name": "yasirsgarage-scripts",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "puppeteer-core": "25.17.0"
+  }
+}
