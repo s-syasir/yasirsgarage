@@ -11,7 +11,10 @@ FROM node:24-alpine
 
 WORKDIR /app
 
-RUN apk add --no-cache ca-certificates
+# The runtime only needs node; the bundled package managers carry their own CVEs (npm's undici, brace-expansion)
+RUN apk add --no-cache ca-certificates \
+  && rm -rf /usr/local/lib/node_modules /opt/yarn-* \
+    /usr/local/bin/npm /usr/local/bin/npx /usr/local/bin/corepack /usr/local/bin/yarn /usr/local/bin/yarnpkg
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && adduser -S nextjs -u 1001
